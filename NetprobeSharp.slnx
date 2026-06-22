@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src\NetprobeSharp.csproj" />
+  </Folder>
+  <Folder Name="/test/">
+    <Project Path="test/NetprobeSharp.Tests.csproj" />
+  </Folder>
+</Solution>
