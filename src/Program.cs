@@ -46,7 +46,12 @@ builder.Services
        .AddOpenTelemetry()
        .WithMetrics(metricsBuilder =>
         {
-            metricsBuilder.AddMeter(ProberService.MeterName).AddPrometheusHttpListener();
+            metricsBuilder.AddMeter(ProberService.MeterName).AddPrometheusHttpListener(opts =>
+            {
+#pragma warning disable CS0618 // Type or member is obsolete - They haven't made an alternative for this one yet.
+                opts.UriPrefixes = [ "http://+:9464" ];
+#pragma warning restore CS0618 // Type or member is obsolete - They haven't made an alternative for this one yet.
+            });
         });
 
 builder.Services.AddTransient<IDnsProber, DnsProber>();

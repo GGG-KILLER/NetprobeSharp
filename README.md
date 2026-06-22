@@ -2,7 +2,7 @@
 
 This project is meant to be a replacement for [netprobe_lite](https://github.com/plaintextpackets/netprobe_lite) after I had a few annoyances with it (code not being embedded into the Docker image, requirement of having 2~3 instances of the code running, needing docker and other issues).
 
-It is not meant to be a comprehensive networkign tool like [SmokePing](https://oss.oetiker.ch/smokeping/) and similar. I only made a rewrite of netprobe_lite in C# since it's the language I knew best, but I still know almost nothing of networking. I originally tried to hand-roll the ICMP sockets in C# to avoid shelling out to `ping`, but it grew too complex to justify, so the prober just runs the system `ping` and parses its summary — which still reports sub-millisecond RTTs, unlike `System.Net.NetworkInformation.Ping`.
+It is not meant to be a comprehensive networking tool like [SmokePing](https://oss.oetiker.ch/smokeping/) and similar. I only made a rewrite of netprobe_lite in C# since it's the language I knew best, but I still know almost nothing of networking. I originally tried to hand-roll the ICMP sockets in C# to avoid shelling out to `ping`, but it grew too complex to justify, so the prober just runs the system `ping` and parses its summary — which still reports sub-millisecond RTTs, unlike `System.Net.NetworkInformation.Ping`.
 
 ## What it does
 
@@ -40,6 +40,94 @@ services:
 
 In both Docker cases the sysctl is network-namespaced, so it only touches the container — no host change — as long as the container has its own netns (i.e. not `network_mode: host`).
 
+## Running
+
+The image is published at `gggdotdev/netprobesharp:latest`:
+
+```bash
+docker pull gggdotdev/netprobesharp:latest
+```
+
+It is built for `linux/amd64`, `linux/arm64` and `linux/arm/v7`, so it runs as-is on x86-64 servers, Apple Silicon and Raspberry Pi (32- and 64-bit).
+
+Two things are needed for a working run:
+
+- **Let `ping` open an ICMP socket without root** — the `net.ipv4.ping_group_range` sysctl described under [System Requirements](#system-requirements).
+- **Expose the metrics port** — publish container port `9464`. The exporter binds to all interfaces (`http://+:9464`), so a published port reaches it; there's nothing else to configure.
+
+### `docker run` — configured via environment variables
+
+This is the quickest way to try it; no config file needed. Replace the `My_DNS_Server` IP with your own router/resolver.
+
+```bash
+docker run --rm \
+  --sysctl "net.ipv4.ping_group_range=0 2147483647" \
+  -p 9464:9464 \
+  -e NETPROBE_Sites__0=google.com \
+  -e NETPROBE_Sites__1=github.com \
+  -e NETPROBE_DnsResolvers__Google_DNS=8.8.8.8 \
+  -e NETPROBE_DnsResolvers__Cloudflare_DNS=1.1.1.1 \
+  -e NETPROBE_DnsResolvers__My_DNS_Server=192.168.1.1 \
+  gggdotdev/netprobesharp:latest
+```
+
+Then scrape it from the host:
+
+```bash
+curl http://localhost:9464/metrics
+```
+
+### `docker run` — configured via a mounted `netprobe.jsonc`
+
+Put a [`netprobe.jsonc`](#netprobejsonc) in the current directory, mount it into a config dir and point `NETPROBE_ConfigPath` at that dir:
+
+```bash
+docker run --rm \
+  --sysctl "net.ipv4.ping_group_range=0 2147483647" \
+  -p 9464:9464 \
+  -e NETPROBE_ConfigPath=/config \
+  -v "$PWD/netprobe.jsonc:/config/netprobe.jsonc:ro" \
+  gggdotdev/netprobesharp:latest
+```
+
+The container runs as a non-root user, so make sure the mounted file is world-readable (`chmod a+r netprobe.jsonc`).
+
+### Docker Compose
+
+```yaml
+services:
+  netprobe:
+    image: gggdotdev/netprobesharp:latest
+    restart: unless-stopped
+    sysctls:
+      - "net.ipv4.ping_group_range=0 2147483647"
+    ports:
+      - "9464:9464"
+    environment:
+      NETPROBE_ConfigPath: "/config"
+    volumes:
+      - ./netprobe.jsonc:/config/netprobe.jsonc:ro
+```
+
+```bash
+docker compose up -d
+curl http://localhost:9464/metrics
+```
+
+### Scraping from Prometheus
+
+Point a Prometheus scrape job at the exposed port. If Prometheus runs in the same Compose network, target the service name; otherwise target the host/IP and published port:
+
+```yaml
+scrape_configs:
+  - job_name: netprobe
+    static_configs:
+      # same Docker network as the compose service above:
+      - targets: ["netprobe:9464"]
+      # or, scraping the host that published the port:
+      # - targets: ["192.168.1.10:9464"]
+```
+
 ## Configuration
 
 Configuration comes from three sources, applied in this order — each one overrides the ones before it:
@@ -52,7 +140,7 @@ So a command-line argument beats an environment variable, which beats the JSON f
 
 ### Where `netprobe.jsonc` is loaded from
 
-By default the file is read from the directory containing the executable. Set the `NETPROBE_ConfigPath` environment variable to point at a different directory (it must contain a `netprobe.jsonc`). This is the one setting that is *only* an environment variable — it's read before configuration binding to decide where to look.
+By default, the file is read from the directory containing the executable. Set the `NETPROBE_ConfigPath` environment variable to point at a different directory (it must contain a `netprobe.jsonc`). This is the one setting that is *only* an environment variable — it's read before configuration binding to decide where to look.
 
 ```bash
 NETPROBE_ConfigPath=/etc/netprobe ./NetprobeSharp
@@ -159,20 +247,13 @@ Note that arrays set this way are merged on top of (not a replacement for) whate
 
 ## Metrics
 
-NetprobeSharp exposes its results as Prometheus metrics over an HTTP listener (provided by `OpenTelemetry.Exporter.Prometheus.HttpListener`). By default they are scrapeable at:
+NetprobeSharp exposes its results as Prometheus metrics over an HTTP listener (provided by `OpenTelemetry.Exporter.Prometheus.HttpListener`). By default, they are scrapeable at:
 
 ```
 http://localhost:9464/metrics
 ```
 
-The host and port are read by the exporter from the standard OpenTelemetry environment variables (note: these are *not* `NETPROBE_`-prefixed):
-
-```bash
-OTEL_EXPORTER_PROMETHEUS_HOST=0.0.0.0   # default: localhost
-OTEL_EXPORTER_PROMETHEUS_PORT=9464      # default: 9464
-```
-
-Set `OTEL_EXPORTER_PROMETHEUS_HOST=0.0.0.0` if you need to scrape the metrics from another machine or container.
+The listener is bound to `http://+:9464` (all interfaces, port `9464`), so it's reachable from other machines and containers out of the box — no configuration needed. The host and port are not currently configurable.
 
 Three gauges are published:
 
