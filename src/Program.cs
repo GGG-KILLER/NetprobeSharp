@@ -1,5 +1,4 @@
-﻿using System.Reflection;
-using Microsoft.Extensions.Configuration;
+﻿using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -12,7 +11,7 @@ using OpenTelemetry.Metrics;
 
 var configPath = Environment.GetEnvironmentVariable("NETPROBE_ConfigPath");
 if (string.IsNullOrWhiteSpace(configPath))
-    configPath = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+    configPath = AppContext.BaseDirectory;
 
 var builder = Host.CreateEmptyApplicationBuilder(
     new HostApplicationBuilderSettings
