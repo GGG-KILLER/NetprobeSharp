@@ -97,7 +97,7 @@ public sealed class DnsProber(ILogger<DnsProber> logger)
     }
 
     // We don't parse answers. A matching header is enough to call it a valid response.
-    private static bool IsValidAndOurReply(ReadOnlySpan<byte> response, ushort id)
+    internal static bool IsValidAndOurReply(ReadOnlySpan<byte> response, ushort id)
     {
         if (response.Length < 12) return false; // smaller than a DNS header
         var rid = (ushort)((response[0] << 8) | response[1]);
@@ -114,7 +114,7 @@ public sealed class DnsProber(ILogger<DnsProber> logger)
     /// <param name="buffer"></param>
     /// <returns>Amount of bytes that were written to the destination.</returns>
     /// <exception cref="ArgumentException">Thrown when any part of the name has more than 63 characters.</exception>
-    private static int BuildAndWriteQuery(ushort id, string domain, Span<byte> buffer)
+    internal static int BuildAndWriteQuery(ushort id, string domain, Span<byte> buffer)
     {
         var trimmed = domain.Trim().TrimEnd('.');
         // Punycode only when a label is actually non-ASCII; the common ASCII path allocates nothing.
