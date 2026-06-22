@@ -45,73 +45,94 @@ public sealed partial class ProberService : BackgroundService
     /// <inheritdoc />
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        var       options = _options.CurrentValue;
-        using var timer   = new PeriodicTimer(TimeSpan.FromSeconds(options.ProbeIntervalSec));
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(_options.CurrentValue.ProbeIntervalSec));
         do
         {
-            _logger.LogInformation("Running ping probes...");
-
-            var t0 = Stopwatch.GetTimestamp();
-            var pingProbes = await Task.WhenAll(
-                                 options.Sites.Select(site => _pingProber.ProbeAsync(
-                                                          site,
-                                                          options.ProbeCountPerSite,
-                                                          cancellationToken: stoppingToken)));
-            LogPingProbesElapsedMs(Stopwatch.GetElapsedTime(t0).TotalMilliseconds);
-
-            double lossSum = 0, latencySum = 0, jitterSum = 0;
-            foreach (var pingProbe in pingProbes)
+            try
             {
-                lossSum += pingProbe.Loss;
-                _networkStats.Record(
-                    pingProbe.Loss,
-                    new KeyValuePair<string, object?>("type",   "loss"),
-                    new KeyValuePair<string, object?>("target", pingProbe.Site));
+                // Re-read configuration every cycle so edits to netprobe.jsonc (reloadOnChange)
+                // take effect without a restart, and update the tick interval to match. Reading
+                // CurrentValue re-runs validation, so an invalid live edit throws here -- caught
+                // below so the service keeps running on the last good cadence instead of crashing.
+                var options = _options.CurrentValue;
+                timer.Period = TimeSpan.FromSeconds(options.ProbeIntervalSec);
 
-                latencySum += pingProbe.Latency;
-                _networkStats.Record(
-                    pingProbe.Latency,
-                    new KeyValuePair<string, object?>("type",   "latency"),
-                    new KeyValuePair<string, object?>("target", pingProbe.Site));
-
-                jitterSum += pingProbe.Jitter;
-                _networkStats.Record(
-                    pingProbe.Jitter,
-                    new KeyValuePair<string, object?>("type",   "jitter"),
-                    new KeyValuePair<string, object?>("target", pingProbe.Site));
+                await RunProbeCycleAsync(options, stoppingToken).ConfigureAwait(false);
             }
-            var avgLoss    = lossSum    / pingProbes.Length;
-            var avgLatency = latencySum / pingProbes.Length;
-            var avgJitter  = jitterSum  / pingProbes.Length;
-
-            _logger.LogInformation("Running DNS probes...");
-
-            t0 = Stopwatch.GetTimestamp();
-            var dnsProbes = await Task.WhenAll(
-                                options.DnsResolvers.Select(resolver => _dnsProber.ProbeAsync(
-                                                                new DnsResolver(
-                                                                    resolver.Key,
-                                                                    IPAddress.Parse(resolver.Value)),
-                                                                options.DnsTestSite,
-                                                                cancellationToken: stoppingToken)));
-            LogDnsProbesElapsedMs(Stopwatch.GetElapsedTime(t0).TotalMilliseconds);
-
-            double usersDnsServer = 0;
-            foreach (var dnsProbe in dnsProbes)
+            // A single failed cycle (bad reload, 'ping' can't be spawned, ...) shouldn't tear
+            // down the host -- log it and try again next tick. Cancellation on shutdown is not
+            // an error, so let it propagate out of the loop.
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                _dnsStats.Record(dnsProbe.Latency, new KeyValuePair<string, object?>("server", dnsProbe.Resolver.Name));
-
-                if (string.Equals(dnsProbe.Resolver.Name, "My_DNS_Server", StringComparison.OrdinalIgnoreCase))
-                    usersDnsServer = dnsProbe.Latency;
+                _logger.LogError(ex, "Probe cycle failed; retrying after the next interval.");
             }
-
-            var scoreLoss    = options.Score.LossWeight    * Math.Min(1.0, avgLoss / options.Score.LossThreshold);
-            var scoreLatency = options.Score.LatencyWeight * Math.Min(1.0, avgLatency / options.Score.LatencyThreshold);
-            var scoreJitter  = options.Score.JitterWeight  * Math.Min(1.0, avgJitter / options.Score.JitterThreshold);
-            var scoreDns     = options.Score.DnsWeight     * Math.Min(1.0, usersDnsServer / options.Score.DnsThreshold);
-            var score        = 1 - scoreLoss - scoreLatency - scoreJitter - scoreDns;
-            _healthStats.Record(score);
         } while (await timer.WaitForNextTickAsync(stoppingToken));
+    }
+
+    private async Task RunProbeCycleAsync(NetprobeOptions options, CancellationToken stoppingToken)
+    {
+        _logger.LogInformation("Running ping probes...");
+
+        var t0 = Stopwatch.GetTimestamp();
+        var pingProbes = await Task.WhenAll(
+                             options.Sites.Select(site => _pingProber.ProbeAsync(
+                                                      site,
+                                                      options.ProbeCountPerSite,
+                                                      cancellationToken: stoppingToken)));
+        LogPingProbesElapsedMs(Stopwatch.GetElapsedTime(t0).TotalMilliseconds);
+
+        double lossSum = 0, latencySum = 0, jitterSum = 0;
+        foreach (var pingProbe in pingProbes)
+        {
+            lossSum += pingProbe.Loss;
+            _networkStats.Record(
+                pingProbe.Loss,
+                new KeyValuePair<string, object?>("type",   "loss"),
+                new KeyValuePair<string, object?>("target", pingProbe.Site));
+
+            latencySum += pingProbe.Latency;
+            _networkStats.Record(
+                pingProbe.Latency,
+                new KeyValuePair<string, object?>("type",   "latency"),
+                new KeyValuePair<string, object?>("target", pingProbe.Site));
+
+            jitterSum += pingProbe.Jitter;
+            _networkStats.Record(
+                pingProbe.Jitter,
+                new KeyValuePair<string, object?>("type",   "jitter"),
+                new KeyValuePair<string, object?>("target", pingProbe.Site));
+        }
+        var avgLoss    = lossSum    / pingProbes.Length;
+        var avgLatency = latencySum / pingProbes.Length;
+        var avgJitter  = jitterSum  / pingProbes.Length;
+
+        _logger.LogInformation("Running DNS probes...");
+
+        t0 = Stopwatch.GetTimestamp();
+        var dnsProbes = await Task.WhenAll(
+                            options.DnsResolvers.Select(resolver => _dnsProber.ProbeAsync(
+                                                            new DnsResolver(
+                                                                resolver.Key,
+                                                                IPAddress.Parse(resolver.Value)),
+                                                            options.DnsTestSite,
+                                                            cancellationToken: stoppingToken)));
+        LogDnsProbesElapsedMs(Stopwatch.GetElapsedTime(t0).TotalMilliseconds);
+
+        double usersDnsServer = 0;
+        foreach (var dnsProbe in dnsProbes)
+        {
+            _dnsStats.Record(dnsProbe.Latency, new KeyValuePair<string, object?>("server", dnsProbe.Resolver.Name));
+
+            if (string.Equals(dnsProbe.Resolver.Name, "My_DNS_Server", StringComparison.OrdinalIgnoreCase))
+                usersDnsServer = dnsProbe.Latency;
+        }
+
+        var scoreLoss    = options.Score.LossWeight    * Math.Min(1.0, avgLoss / options.Score.LossThreshold);
+        var scoreLatency = options.Score.LatencyWeight * Math.Min(1.0, avgLatency / options.Score.LatencyThreshold);
+        var scoreJitter  = options.Score.JitterWeight  * Math.Min(1.0, avgJitter / options.Score.JitterThreshold);
+        var scoreDns     = options.Score.DnsWeight     * Math.Min(1.0, usersDnsServer / options.Score.DnsThreshold);
+        var score        = 1 - scoreLoss - scoreLatency - scoreJitter - scoreDns;
+        _healthStats.Record(score);
     }
 
     /// <inheritdoc />
