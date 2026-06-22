@@ -5,9 +5,10 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+  </PropertyGroup>
 
+  <PropertyGroup Condition="$(PublishAot) == 'true'">
     <!-- AOT -->
-    <PublishAot>true</PublishAot>
     <RuntimeIdentifiers>linux-x64;linux-arm64;linux-musl-x64;linux-musl-arm64;osx-arm64</RuntimeIdentifiers>
     <OptimizationPreference>Speed</OptimizationPreference> <!-- we're measuring time-critical things here -->
     <EnableConfigurationBindingGenerator>true</EnableConfigurationBindingGenerator>
