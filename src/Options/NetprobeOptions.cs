@@ -1,7 +1,5 @@
-using System.ComponentModel.DataAnnotations;
 using System.Net;
 using Microsoft.Extensions.Options;
-using NetprobeSharp.Probers;
 
 namespace NetprobeSharp.Options;
 

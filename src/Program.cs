@@ -9,7 +9,6 @@ using NetprobeSharp;
 using NetprobeSharp.Options;
 using NetprobeSharp.Probers;
 using OpenTelemetry.Metrics;
-using OpenTelemetry.Resources;
 
 var configPath = Environment.GetEnvironmentVariable("NETPROBE_ConfigPath");
 if (string.IsNullOrWhiteSpace(configPath))
