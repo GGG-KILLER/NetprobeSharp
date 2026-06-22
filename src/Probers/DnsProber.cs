@@ -5,12 +5,10 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
-using NetprobeSharp.Options;
 
 namespace NetprobeSharp.Probers;
 
-public sealed class DnsProber(ILogger<DnsProber> logger, IOptionsMonitor<NetprobeOptions> optionsMonitor)
+public sealed class DnsProber(ILogger<DnsProber> logger)
     : IDnsProber
 {
     // A DNS query never exceeds header(12) + QNAME(<=255) + QTYPE/QCLASS(4); 512 is the
@@ -29,9 +27,10 @@ public sealed class DnsProber(ILogger<DnsProber> logger, IOptionsMonitor<Netprob
     /// records, so the latency stands regardless of whether the name resolved.
     /// </remarks>
     /// <returns>
-    /// The resolver together with the measured latency in milliseconds. Latency is
-    /// <see cref="ScoreOptions.DnsThreshold"/> when the resolver did not answer within the timeout (the
-    /// non-response is recorded, not thrown).
+    /// The resolver together with the measured latency in milliseconds, or
+    /// <see langword="null"/> latency when the resolver does not answer within the timeout
+    /// or is unreachable/refused (the non-response is recorded, not thrown). The caller
+    /// decides how to treat a missing value.
     /// </returns>
     public async Task<DnsProbeResult> ProbeAsync(
         DnsResolver       resolver,
@@ -82,16 +81,12 @@ public sealed class DnsProber(ILogger<DnsProber> logger, IOptionsMonitor<Netprob
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
                 logger.LogWarning("Timed out trying to resolve using {Resolver}", resolver);
-                return new DnsProbeResult(
-                    resolver,
-                    optionsMonitor.CurrentValue.Score.DnsThreshold); // timed out (caller cancellation propagates)
+                return new DnsProbeResult(resolver, null); // timed out (caller cancellation propagates)
             }
             catch (SocketException ex)
             {
                 logger.LogError(ex, "Error trying to resolve using {Resolver}", resolver);
-                return new DnsProbeResult(
-                    resolver,
-                    optionsMonitor.CurrentValue.Score.DnsThreshold); // refused / unreachable -> no answer
+                return new DnsProbeResult(resolver, null); // refused / unreachable -> no answer
             }
         }
         finally

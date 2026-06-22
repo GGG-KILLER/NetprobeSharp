@@ -4,7 +4,7 @@ namespace NetprobeSharp.Probers;
 
 public readonly record struct DnsResolver(string Name, IPAddress Ip);
 
-public readonly record struct DnsProbeResult(DnsResolver Resolver, double Latency);
+public readonly record struct DnsProbeResult(DnsResolver Resolver, double? Latency);
 
 public interface IDnsProber
 {

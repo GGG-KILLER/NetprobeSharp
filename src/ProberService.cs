@@ -81,24 +81,33 @@ public sealed partial class ProberService : BackgroundService
                                                       cancellationToken: stoppingToken)));
         LogPingProbesElapsedMs(Stopwatch.GetElapsedTime(t0).TotalMilliseconds);
 
+        // Probers report null for a figure they couldn't measure; treat a missing value as
+        // the worst case (its threshold) so an outage drags the score down and is recorded
+        // rather than silently disappearing.
+        var score = options.Score;
+
         double lossSum = 0, latencySum = 0, jitterSum = 0;
         foreach (var pingProbe in pingProbes)
         {
-            lossSum += pingProbe.Loss;
+            var loss    = pingProbe.Loss    ?? score.LossThreshold;
+            var latency = pingProbe.Latency ?? score.LatencyThreshold;
+            var jitter  = pingProbe.Jitter  ?? score.JitterThreshold;
+
+            lossSum += loss;
             _networkStats.Record(
-                pingProbe.Loss,
+                loss,
                 new KeyValuePair<string, object?>("type",   "loss"),
                 new KeyValuePair<string, object?>("target", pingProbe.Site));
 
-            latencySum += pingProbe.Latency;
+            latencySum += latency;
             _networkStats.Record(
-                pingProbe.Latency,
+                latency,
                 new KeyValuePair<string, object?>("type",   "latency"),
                 new KeyValuePair<string, object?>("target", pingProbe.Site));
 
-            jitterSum += pingProbe.Jitter;
+            jitterSum += jitter;
             _networkStats.Record(
-                pingProbe.Jitter,
+                jitter,
                 new KeyValuePair<string, object?>("type",   "jitter"),
                 new KeyValuePair<string, object?>("target", pingProbe.Site));
         }
@@ -121,18 +130,14 @@ public sealed partial class ProberService : BackgroundService
         double usersDnsServer = 0;
         foreach (var dnsProbe in dnsProbes)
         {
-            _dnsStats.Record(dnsProbe.Latency, new KeyValuePair<string, object?>("server", dnsProbe.Resolver.Name));
+            var latency = dnsProbe.Latency ?? score.DnsThreshold;
+            _dnsStats.Record(latency, new KeyValuePair<string, object?>("server", dnsProbe.Resolver.Name));
 
             if (string.Equals(dnsProbe.Resolver.Name, "My_DNS_Server", StringComparison.OrdinalIgnoreCase))
-                usersDnsServer = dnsProbe.Latency;
+                usersDnsServer = latency;
         }
 
-        var scoreLoss    = options.Score.LossWeight    * Math.Min(1.0, avgLoss / options.Score.LossThreshold);
-        var scoreLatency = options.Score.LatencyWeight * Math.Min(1.0, avgLatency / options.Score.LatencyThreshold);
-        var scoreJitter  = options.Score.JitterWeight  * Math.Min(1.0, avgJitter / options.Score.JitterThreshold);
-        var scoreDns     = options.Score.DnsWeight     * Math.Min(1.0, usersDnsServer / options.Score.DnsThreshold);
-        var score        = 1 - scoreLoss - scoreLatency - scoreJitter - scoreDns;
-        _healthStats.Record(score);
+        _healthStats.Record(HealthScore.Compute(avgLoss, avgLatency, avgJitter, usersDnsServer, score));
     }
 
     /// <inheritdoc />
