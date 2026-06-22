@@ -26,4 +26,18 @@ RUN apk add --no-cache iputils
 
 COPY --link --from=build /app .
 USER $APP_UID
+
+# OCI image metadata. version/revision are build-time inputs so CI can stamp them, e.g.
+#   docker buildx build --build-arg VERSION=0.2.0 --build-arg REVISION=$(git rev-parse HEAD) .
+# Declared late so changing them doesn't invalidate the layers above.
+ARG VERSION=dev
+ARG REVISION=
+LABEL org.opencontainers.image.title="NetprobeSharp" \
+      org.opencontainers.image.description="Internet connection health monitor: pings sites and times DNS resolvers, exposing the results and a health score as Prometheus metrics." \
+      org.opencontainers.image.source="https://github.com/GGG-KILLER/NetprobeSharp" \
+      org.opencontainers.image.url="https://github.com/GGG-KILLER/NetprobeSharp" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${REVISION}" \
+      org.opencontainers.image.licenses="MIT"
+
 ENTRYPOINT ["./NetprobeSharp"]
