@@ -8,11 +8,11 @@ It is not meant to be a comprehensive networking tool like [SmokePing](https://o
 
 On a fixed interval, NetprobeSharp:
 
-1. Pings every site in [`Sites`](#configuration-reference) and records average latency, packet loss and jitter per site.
-2. Sends a recursive DNS query for [`DnsTestSite`](#configuration-reference) to every resolver in [`DnsResolvers`](#configuration-reference) and records the round-trip latency per resolver.
+1. Pings every site in [`Sites`](#configuration-reference) and records the round-trip time of every reply (as a histogram), plus packet loss and jitter per site.
+2. Sends a recursive DNS query for [`DnsTestSite`](#configuration-reference) to every resolver in [`DnsResolvers`](#configuration-reference) and records the round-trip latency per resolver (as a histogram).
 3. Combines those into a single internet health score.
 
-All of this is published as [Prometheus metrics](#metrics) for you to scrape and graph.
+All of this is published as [Prometheus metrics](#metrics) for you to scrape and graph, and a [`/health`](#metrics) endpoint is exposed for liveness probes.
 
 ## System Requirements
 
@@ -53,7 +53,7 @@ It is built for `linux/amd64`, `linux/arm64` and `linux/arm/v7`, so it runs as-i
 Two things are needed for a working run:
 
 - **Let `ping` open an ICMP socket without root** — the `net.ipv4.ping_group_range` sysctl described under [System Requirements](#system-requirements).
-- **Expose the metrics port** — publish container port `9464`. The exporter binds to all interfaces (`http://+:9464`), so a published port reaches it; there's nothing else to configure.
+- **Expose the metrics port** — publish container port `9464`. The server binds to all interfaces (`http://+:9464`), so a published port reaches it; there's nothing else to configure. The port is overridable via [`ASPNETCORE_URLS`](#metrics) if you need a different one.
 
 ### `docker run` — configured via environment variables
 
@@ -155,6 +155,9 @@ NETPROBE_ConfigPath=/etc/netprobe ./NetprobeSharp
 | `DnsTestSite` | string | `google.com` | The domain queried against every resolver. Must be a valid domain. |
 | `ProbeIntervalSec` | int | `30` | Seconds between probe runs. Must be ≥ 1. |
 | `ProbeCountPerSite` | int | `50` | Pings sent to each site per run. Must be ≥ 1. |
+| `PingTimeoutMs` | int | `1000` | How long to wait for each ping reply before marking it lost (`ping -W`). Must be ≥ 1. |
+| `PingSpacingMs` | int | `100` | Delay between consecutive pings within a single run (`ping -i`). Distinct from `ProbeIntervalSec`, which is the gap between whole runs. Must be ≥ 1. |
+| `DnsTimeoutMs` | int | `1000` | How long to wait for a DNS reply before timing out. Must be ≥ 1. |
 | `Score.LossThreshold` | double | `5` | Packet loss % treated as the worst case (caps the loss contribution). |
 | `Score.LossWeight` | double | `0.60` | Weight of packet loss in the score. |
 | `Score.LatencyThreshold` | double | `100` | Ping latency (ms) treated as the worst case. |
@@ -172,10 +175,12 @@ This is the recommended way to configure NetprobeSharp. A starter file ships wit
 
 ```jsonc
 {
-  // General
+  // Probe cycle
   "ProbeIntervalSec": 30,
   // Ping
   "ProbeCountPerSite": 50,
+  "PingTimeoutMs": 1000,
+  "PingSpacingMs": 100,
   "Sites": [
     "google.com",
     "facebook.com",
@@ -184,6 +189,7 @@ This is the recommended way to configure NetprobeSharp. A starter file ships wit
     "amazon.com"
   ],
   // DNS
+  "DnsTimeoutMs": 1000,
   "DnsTestSite": "google.com",
   "DnsResolvers": {
     "Google_DNS": "8.8.8.8",
@@ -247,21 +253,42 @@ Note that arrays set this way are merged on top of (not a replacement for) whate
 
 ## Metrics
 
-NetprobeSharp exposes its results as Prometheus metrics over an HTTP listener (provided by `OpenTelemetry.Exporter.Prometheus.HttpListener`). By default, they are scrapeable at:
+NetprobeSharp exposes its results as Prometheus metrics over an ASP.NET Core endpoint (provided by `OpenTelemetry.Exporter.Prometheus.AspNetCore`). By default, they are scrapeable at:
 
 ```
 http://localhost:9464/metrics
 ```
 
-The listener is bound to `http://+:9464` (all interfaces, port `9464`), so it's reachable from other machines and containers out of the box — no configuration needed. The host and port are not currently configurable.
+A liveness endpoint is served on the same port:
 
-Three gauges are published:
+```
+http://localhost:9464/health
+```
 
-| Metric | Labels | Description |
-| --- | --- | --- |
-| `Network_Stats` | `type` (`loss` / `latency` / `jitter`), `target` (site) | Per-site packet loss (%), average latency (ms) and jitter (ms). |
-| `DNS_Stats` | `server` (resolver name) | Per-resolver DNS query latency (ms). |
-| `Health_Stats` | — | Overall internet health score, `0`–`1` (see below). |
+The server is bound to `http://+:9464` (all interfaces, port `9464`), so it's reachable from other machines and containers out of the box — no configuration needed. To listen elsewhere, set the standard `ASPNETCORE_URLS` environment variable (e.g. `ASPNETCORE_URLS=http://+:8080`).
+
+Metrics follow Prometheus naming conventions: base units (seconds, ratios `0`–`1`) and unit-suffixed names. The published metrics are:
+
+| Metric | Type | Labels | Description |
+| --- | --- | --- | --- |
+| `netprobe_ping_rtt_seconds` | histogram | `target` (site) | Round-trip time of each ping reply, in seconds. Use `histogram_quantile()` for percentiles. |
+| `netprobe_ping_jitter_seconds` | gauge | `target` (site) | Per-site jitter (RTT population stddev / `mdev`), in seconds. |
+| `netprobe_ping_packet_loss_ratio` | gauge | `target` (site) | Per-site packet loss as a ratio `0`–`1`. |
+| `netprobe_ping_up` | gauge | `target` (site) | `1` if the last ping probe returned a parseable summary, else `0`. |
+| `netprobe_dns_query_duration_seconds` | histogram | `resolver` (resolver name) | Per-resolver DNS query latency, in seconds. |
+| `netprobe_dns_up` | gauge | `resolver` (resolver name) | `1` if the last DNS probe received a reply, else `0`. |
+| `netprobe_health_score` | gauge | — | Overall internet health score, `0`–`1` (see below). |
+| `netprobe_build_info` | gauge | `version` | Constant `1`; exposes the build version as a label. |
+
+### Querying latency percentiles
+
+Because RTT and DNS latency are histograms, you compute percentiles in PromQL rather than reading a pre-baked value. For example, the 95th-percentile ping RTT per target over the last 5 minutes:
+
+```promql
+histogram_quantile(0.95, sum by (le, target) (rate(netprobe_ping_rtt_seconds_bucket[5m])))
+```
+
+The mean is `rate(netprobe_ping_rtt_seconds_sum[5m]) / rate(netprobe_ping_rtt_seconds_count[5m])`.
 
 ## Scoring
 
@@ -277,4 +304,6 @@ score = 1
 
 `avgLoss`, `avgLatency` and `avgJitter` are averaged across all `Sites`, while the DNS term uses only the latency of the `My_DNS_Server` resolver. With the default weights, a higher score is better, `1.0` means everything is well under its threshold, and a fully degraded connection bottoms out at `0.0`.
 
-When a site is fully unreachable (100% loss) or `ping`'s output can't be parsed, that probe is recorded at the configured thresholds rather than dropped, so an outage still drags the score down instead of silently disappearing. Likewise, a resolver that doesn't answer within the timeout is recorded at `DnsThreshold`.
+When a site is fully unreachable (100% loss) or `ping`'s output can't be parsed, the missing latency/jitter figures are treated as their configured thresholds **for the score calculation only**, so an outage still drags the score down instead of silently disappearing. Likewise, a resolver that doesn't answer within the timeout contributes `DnsThreshold` to the score.
+
+This substitution is confined to the score — it does **not** leak into the metrics. A failed probe records `netprobe_ping_up` / `netprobe_dns_up` at `0` (with `netprobe_ping_packet_loss_ratio` at `1` for total loss), and the latency/jitter samples are simply absent rather than reported as a fake threshold value. That way a scraper can tell a genuine `100 ms` measurement apart from a timeout.
