@@ -1,7 +1,3 @@
-﻿using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Console;
 using Microsoft.Extensions.Options;
 using NetprobeSharp;
@@ -13,18 +9,17 @@ var configPath = Environment.GetEnvironmentVariable("NETPROBE_ConfigPath");
 if (string.IsNullOrWhiteSpace(configPath))
     configPath = AppContext.BaseDirectory;
 
-var builder = Host.CreateEmptyApplicationBuilder(
-    new HostApplicationBuilderSettings
-    {
-        ApplicationName = "NetprobeSharp",
-        Args            = args,
-        ContentRootPath = configPath,
-        DisableDefaults = true,
-        EnvironmentName = "Production"
-    });
+var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions
+{
+    ApplicationName = "NetprobeSharp",
+    Args            = args,
+    ContentRootPath = configPath,
+    EnvironmentName = "Production",
+});
 
-builder.ConfigureContainer(
-    new DefaultServiceProviderFactory(new ServiceProviderOptions { ValidateScopes = true, ValidateOnBuild = true }));
+// Default listen address — users can override via ASPNETCORE_URLS or the "urls" key.
+// Kestrel accepts "+" as a wildcard host (equivalent to 0.0.0.0 / [::]).
+builder.Configuration["urls"] ??= "http://+:9464";
 
 builder.Logging.AddSimpleConsole(opts =>
 {
@@ -33,7 +28,6 @@ builder.Logging.AddSimpleConsole(opts =>
     opts.SingleLine    = false;
 });
 builder.Logging.AddDebug();
-builder.Logging.AddEventSourceLogger();
 
 builder.Configuration.AddJsonFile("netprobe.jsonc", optional: true, reloadOnChange: true);
 builder.Configuration.AddEnvironmentVariables("NETPROBE_");
@@ -46,13 +40,12 @@ builder.Services
        .AddOpenTelemetry()
        .WithMetrics(metricsBuilder =>
         {
-            metricsBuilder.AddMeter(ProberService.MeterName).AddPrometheusHttpListener(opts =>
-            {
-#pragma warning disable CS0618 // Type or member is obsolete - They haven't made an alternative for this one yet.
-                opts.UriPrefixes = [ "http://+:9464" ];
-#pragma warning restore CS0618 // Type or member is obsolete - They haven't made an alternative for this one yet.
-            });
+            metricsBuilder
+                .AddMeter(ProberService.MeterName)
+                .AddPrometheusExporter();
         });
+
+builder.Services.AddHealthChecks();
 
 builder.Services.AddTransient<IDnsProber, DnsProber>();
 builder.Services.AddTransient<IPingProber, PingProber>();
@@ -60,6 +53,7 @@ builder.Services.AddHostedService<ProberService>();
 
 var app = builder.Build();
 
-await app.RunAsync();
+app.UseOpenTelemetryPrometheusScrapingEndpoint();
+app.MapHealthChecks("/health");
 
-// Uri.CheckHostName()
+await app.RunAsync();

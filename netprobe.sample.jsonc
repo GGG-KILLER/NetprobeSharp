@@ -1,8 +1,16 @@
 {
-  // General
+  // ── Probe cycle ──────────────────────────────────────────────────────────────
+  // How often a full probe cycle (all pings + DNS queries) runs.
   "ProbeIntervalSec": 30,
-  // Ping
+
+  // ── Ping ─────────────────────────────────────────────────────────────────────
+  // Number of pings sent to each site per cycle.
   "ProbeCountPerSite": 50,
+  // Per-reply timeout: how long to wait for each ping reply before marking it lost (-W, ms).
+  "PingTimeoutMs": 1000,
+  // Spacing between consecutive pings in a batch (-i, ms).
+  // Distinct from ProbeIntervalSec — this controls the rate within one batch.
+  "PingSpacingMs": 100,
   "Sites": [
     "google.com",
     "facebook.com",
@@ -10,14 +18,17 @@
     "youtube.com",
     "amazon.com"
   ],
-  // DNS
+
+  // ── DNS ──────────────────────────────────────────────────────────────────────
+  // How long to wait for a DNS reply before timing out (ms).
+  "DnsTimeoutMs": 1000,
   "DnsTestSite": "google.com",
   "DnsResolvers": {
     "Google_DNS": "8.8.8.8",
     "Quad9_DNS": "9.9.9.9",
     "CloudFlare_DNS": "1.1.1.1",
-    // The name/key for the next one is used for quality calculations, so don't change it.
-    // But *DO* replace the IP with the DNS server you use in your home network.
+    // The name/key for the next entry is used for quality calculations, so don't change it.
+    // DO replace the IP with the DNS server configured in your home network.
     "My_DNS_Server": "8.8.8.8"
   }
 }

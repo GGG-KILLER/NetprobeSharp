@@ -20,9 +20,10 @@ public interface IDnsProber
     /// records, so the latency stands regardless of whether the name resolved.
     /// </remarks>
     /// <returns>
-    /// The resolver together with the measured latency in milliseconds. Latency is the
-    /// configured <c>DnsThreshold</c> when the resolver does not answer within the timeout
-    /// or is unreachable/refused (the non-response is recorded, not thrown).
+    /// The resolver together with the measured round-trip latency in milliseconds, or
+    /// <see langword="null"/> latency when the resolver does not answer within the timeout
+    /// or is unreachable/refused (the non-response is recorded, not thrown). The caller
+    /// decides how to treat a missing value.
     /// </returns>
     Task<DnsProbeResult> ProbeAsync(
         DnsResolver       resolver,

@@ -1,7 +1,7 @@
+using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.Text.RegularExpressions;
-using Microsoft.Extensions.Logging;
 
 namespace NetprobeSharp.Probers;
 
@@ -17,27 +17,22 @@ public sealed partial class PingProber(ILogger<PingProber> logger)
     // Anchor on the shared "min/avg/max/..." label so it's clear which number is which,
     // while tolerating the dialects that vary around it: iputils prefixes "rtt" and ends in
     // "mdev"; BSD/macOS prefix "round-trip" and end in "stddev".
-    [GeneratedRegex(@"min/avg/max/\w+\s*=\s*[\d.]+/(?<avg>[\d.]+)/[\d.]+/(?<mdev>[\d.]+)\s*ms")]
-    private static partial Regex RttRegex { get; }
+    [GeneratedRegex(@"min/avg/max/\w+\s*=\s*[\d.]+/[\d.]+/[\d.]+/(?<mdev>[\d.]+)\s*ms")]
+    private static partial Regex RttSummaryRegex { get; }
 
-    /// <summary>
-    /// Pings <paramref name="site"/> <paramref name="count"/> times and returns aggregate stats.
-    /// Shells out to the system <c>ping</c>, which already handles IPv4/IPv6 selection,
-    /// privileges, and RTT aggregation, and parses its summary block.
-    /// </summary>
-    /// <remarks>
-    /// Latency = mean RTT, Jitter = mdev (population stddev, as iputils reports it),
-    /// Loss = percentage of probes with no reply. Values are <see langword="null"/> when the
-    /// figure isn't available: Latency/Jitter on 100% loss or unparseable RTT, and all three
-    /// when <c>ping</c> produced no recognizable summary at all. The caller decides how to
-    /// treat a missing value. Throws <see cref="InvalidOperationException"/> only if
-    /// <c>ping</c> cannot be started.
-    /// </remarks>
+    // Per-reply lines emitted by both iputils and BSD ping:
+    //   iputils: "64 bytes from 8.8.8.8: icmp_seq=1 ttl=118 time=8.12 ms"
+    //   BSD:     "64 bytes from 8.8.8.8: icmp_seq=1 ttl=118 time=8.123 ms"
+    //   Both also use "<" instead of "=" for sub-ms times on some platforms.
+    [GeneratedRegex(@"\btime[=<](?<ms>[\d.]+)\s*ms")]
+    private static partial Regex PerReplyRegex { get; }
+
+    /// <inheritdoc />
     public async Task<PingProbeResult> ProbeAsync(
         string            site,
         int               count,
         int               timeoutMs         = 1000,
-        int               intervalMs        = 100,
+        int               spacingMs         = 100,
         CancellationToken cancellationToken = default)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(count, 1);
@@ -55,7 +50,7 @@ public sealed partial class PingProber(ILogger<PingProber> logger)
                           "-W",
                           (timeoutMs / 1000.0).ToString(CultureInfo.InvariantCulture),
                           "-i",
-                          (intervalMs / 1000.0).ToString(CultureInfo.InvariantCulture),
+                          (spacingMs / 1000.0).ToString(CultureInfo.InvariantCulture),
                           site,
                       },
                       RedirectStandardOutput = true,
@@ -112,16 +107,17 @@ public sealed partial class PingProber(ILogger<PingProber> logger)
                 stderr.Trim());
         }
 
-        return new PingProbeResult(site, summary?.AvgRttMs, summary?.Loss, summary?.MdevMs);
+        IReadOnlyList<double> rtts = ParseRtts(stdout);
+        return new PingProbeResult(site, summary?.Loss, summary?.MdevMs, rtts);
     }
 
-    internal readonly record struct PingSummary(double Loss, double? AvgRttMs, double? MdevMs);
+    internal readonly record struct PingSummary(double Loss, double? MdevMs);
 
     /// <summary>
     /// Parses a <c>ping</c> statistics block. Returns <see langword="null"/> when there is no
-    /// loss line (ping failed for real); within a valid summary, <see cref="PingSummary.AvgRttMs"/>
-    /// and <see cref="PingSummary.MdevMs"/> are <see langword="null"/> when there is no rtt line
-    /// (e.g. 100% loss). Handles both the iputils and BSD/macOS dialects.
+    /// loss line (ping failed for real); within a valid summary, <see cref="PingSummary.MdevMs"/>
+    /// is <see langword="null"/> when there is no rtt line (e.g. 100% loss). Handles both the
+    /// iputils and BSD/macOS dialects.
     /// </summary>
     internal static PingSummary? ParseSummary(string output)
     {
@@ -130,12 +126,27 @@ public sealed partial class PingProber(ILogger<PingProber> logger)
             return null;
         var loss = double.Parse(lossMatch.Groups["loss"].Value, CultureInfo.InvariantCulture);
 
-        Match rtt = RttRegex.Match(output);
+        Match rtt = RttSummaryRegex.Match(output);
         if (!rtt.Success)
-            return new PingSummary(loss, null, null);
+            return new PingSummary(loss, null);
 
-        var avg  = double.Parse(rtt.Groups["avg"].Value,  CultureInfo.InvariantCulture);
         var mdev = double.Parse(rtt.Groups["mdev"].Value, CultureInfo.InvariantCulture);
-        return new PingSummary(loss, avg, mdev);
+        return new PingSummary(loss, mdev);
+    }
+
+    /// <summary>
+    /// Collects all per-reply RTT values (ms) from a <c>ping</c> output in arrival order.
+    /// Returns an empty list when there are no replies (total loss or no output).
+    /// </summary>
+    internal static IReadOnlyList<double> ParseRtts(string output)
+    {
+        var matches = PerReplyRegex.Matches(output);
+        if (matches.Count == 0)
+            return ReadOnlyCollection<double>.Empty;
+
+        var list = new List<double>(matches.Count);
+        foreach (Match m in matches)
+            list.Add(double.Parse(m.Groups["ms"].Value, CultureInfo.InvariantCulture));
+        return list;
     }
 }

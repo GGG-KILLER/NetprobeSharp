@@ -31,6 +31,23 @@ public sealed class NetprobeOptions
     public int ProbeCountPerSite { get; set; } = 50;
 
     /// <summary>
+    /// How long to wait for a single ping reply before declaring it lost (<c>-W</c>, in ms).
+    /// </summary>
+    public int PingTimeoutMs { get; set; } = 1000;
+
+    /// <summary>
+    /// Delay between consecutive pings within one probe batch (<c>-i</c>, in ms).
+    /// Distinct from <see cref="ProbeIntervalSec"/>, which is the cadence between whole
+    /// probe cycles.
+    /// </summary>
+    public int PingSpacingMs { get; set; } = 100;
+
+    /// <summary>
+    /// How long to wait for a DNS reply before declaring it a timeout (in ms).
+    /// </summary>
+    public int DnsTimeoutMs { get; set; } = 1000;
+
+    /// <summary>
     /// Options for scoring the network connectivity.
     /// </summary>
     public ScoreOptions Score { get; set; } = new();
@@ -108,6 +125,27 @@ public sealed class NetprobeOptionsValidator : IValidateOptions<NetprobeOptions>
             builder.AddError(
                 $"'{nameof(NetprobeOptions.ProbeCountPerSite)}' must be greater than or equal to 1.",
                 nameof(NetprobeOptions.ProbeCountPerSite));
+        }
+
+        if (options.PingTimeoutMs < 1)
+        {
+            builder.AddError(
+                $"'{nameof(NetprobeOptions.PingTimeoutMs)}' must be greater than or equal to 1.",
+                nameof(NetprobeOptions.PingTimeoutMs));
+        }
+
+        if (options.PingSpacingMs < 1)
+        {
+            builder.AddError(
+                $"'{nameof(NetprobeOptions.PingSpacingMs)}' must be greater than or equal to 1.",
+                nameof(NetprobeOptions.PingSpacingMs));
+        }
+
+        if (options.DnsTimeoutMs < 1)
+        {
+            builder.AddError(
+                $"'{nameof(NetprobeOptions.DnsTimeoutMs)}' must be greater than or equal to 1.",
+                nameof(NetprobeOptions.DnsTimeoutMs));
         }
 
         return builder.Build();

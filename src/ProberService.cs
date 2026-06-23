@@ -1,11 +1,11 @@
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using System.Net;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
+using System.Reflection;
 using Microsoft.Extensions.Options;
 using NetprobeSharp.Options;
 using NetprobeSharp.Probers;
+using OpenTelemetry.Metrics;
 
 namespace NetprobeSharp;
 
@@ -13,33 +13,88 @@ public sealed partial class ProberService : BackgroundService
 {
     public static readonly string MeterName = "NetprobeSharp";
 
+    // RTT bucket boundaries in seconds, sized for network latency (1 ms – 2 s).
+    private static readonly double[] s_rttBuckets =
+    [
+        0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.0
+    ];
+
     private readonly ILogger<ProberService>           _logger;
     private readonly IOptionsMonitor<NetprobeOptions> _options;
     private readonly IPingProber                      _pingProber;
     private readonly IDnsProber                       _dnsProber;
     private readonly Meter                            _meter;
-    private readonly Gauge<double>                    _networkStats, _dnsStats, _healthStats;
+
+    // Histograms — emit _bucket / _sum / _count automatically.
+    private readonly Histogram<double> _pingRtt;
+    private readonly Histogram<double> _dnsQueryDuration;
+
+    // Gauges
+    private readonly Gauge<double> _pingJitter;
+    private readonly Gauge<double> _pingLossRatio;
+    private readonly Gauge<double> _pingUp;
+    private readonly Gauge<double> _dnsUp;
+    private readonly Gauge<double> _healthScore;
+    private readonly Gauge<double> _buildInfo;
 
     public ProberService(
         ILogger<ProberService>           logger,
         IOptionsMonitor<NetprobeOptions> options,
         IPingProber                      pingProber,
-        IDnsProber                       dnsProber)
+        IDnsProber                       dnsProber,
+        MeterProvider                    meterProvider) // ensures OTel pipeline is started
     {
         _logger     = logger;
         _options    = options;
         _pingProber = pingProber;
         _dnsProber  = dnsProber;
         _meter      = new Meter(MeterName);
-        _networkStats = _meter.CreateGauge<double>(
-            "Network_Stats",
-            description: "Average Latency, Packet Loss and Jitter for pings to each site.");
-        _dnsStats = _meter.CreateGauge<double>(
-            "DNS_Stats",
-            description: "Average DNS Latency to each resolver.");
-        _healthStats = _meter.CreateGauge<double>(
-            "Health_Stats",
-            description: "Internet health score calculation.");
+
+        _pingRtt = _meter.CreateHistogram<double>(
+            "netprobe_ping_rtt",
+            unit: "seconds",
+            description: "Round-trip time per ping reply.",
+            advice: new InstrumentAdvice<double> { HistogramBucketBoundaries = s_rttBuckets });
+
+        _dnsQueryDuration = _meter.CreateHistogram<double>(
+            "netprobe_dns_query_duration",
+            unit: "seconds",
+            description: "DNS query round-trip latency.",
+            advice: new InstrumentAdvice<double> { HistogramBucketBoundaries = s_rttBuckets });
+
+        _pingJitter = _meter.CreateGauge<double>(
+            "netprobe_ping_jitter",
+            unit: "seconds",
+            description: "Ping RTT population stddev (mdev) per target.");
+
+        _pingLossRatio = _meter.CreateGauge<double>(
+            "netprobe_ping_packet_loss",
+            unit: "ratio",
+            description: "Fraction of pings that received no reply (0–1).");
+
+        _pingUp = _meter.CreateGauge<double>(
+            "netprobe_ping_up",
+            description: "1 if the last ping probe returned a parseable summary, else 0.");
+
+        _dnsUp = _meter.CreateGauge<double>(
+            "netprobe_dns_up",
+            description: "1 if the last DNS probe received a reply, else 0.");
+
+        _healthScore = _meter.CreateGauge<double>(
+            "netprobe_health_score",
+            description: "Internet quality score (0–1, higher is better).");
+
+        // Conventional version exposure: always 1, version in a label.
+        _buildInfo = _meter.CreateGauge<double>(
+            "netprobe_build_info",
+            description: "Build information; value is always 1.");
+
+        var version = Assembly
+                     .GetEntryAssembly()
+                    ?.GetCustomAttribute<AssemblyInformationalVersionAttribute>()
+                    ?.InformationalVersion
+                   ?? "unknown";
+        _buildInfo.Record(1, new KeyValuePair<string, object?>("version", version));
     }
 
     /// <inheritdoc />
@@ -78,39 +133,44 @@ public sealed partial class ProberService : BackgroundService
                              options.Sites.Select(site => _pingProber.ProbeAsync(
                                                       site,
                                                       options.ProbeCountPerSite,
-                                                      cancellationToken: stoppingToken)));
+                                                      options.PingTimeoutMs,
+                                                      options.PingSpacingMs,
+                                                      stoppingToken)));
         LogPingProbesElapsedMs(Stopwatch.GetElapsedTime(t0).TotalMilliseconds);
 
-        // Probers report null for a figure they couldn't measure; treat a missing value as
-        // the worst case (its threshold) so an outage drags the score down and is recorded
-        // rather than silently disappearing.
         var score = options.Score;
 
+        // Accumulators for the health score (in ms / %, matching ScoreOptions thresholds).
         double lossSum = 0, latencySum = 0, jitterSum = 0;
+
         foreach (var pingProbe in pingProbes)
         {
-            var loss    = pingProbe.Loss    ?? score.LossThreshold;
-            var latency = pingProbe.Latency ?? score.LatencyThreshold;
-            var jitter  = pingProbe.Jitter  ?? score.JitterThreshold;
+            var target = new KeyValuePair<string, object?>("target", pingProbe.Site);
+            var up     = pingProbe.Loss.HasValue ? 1.0 : 0.0;
+            _pingUp.Record(up, target);
 
-            lossSum += loss;
-            _networkStats.Record(
-                loss,
-                new KeyValuePair<string, object?>("type",   "loss"),
-                new KeyValuePair<string, object?>("target", pingProbe.Site));
+            // Loss ratio — always recorded (1 when totally unreachable or parse failure).
+            var lossRatio = (pingProbe.Loss ?? 100.0) / 100.0;
+            _pingLossRatio.Record(lossRatio, target);
 
-            latencySum += latency;
-            _networkStats.Record(
-                latency,
-                new KeyValuePair<string, object?>("type",   "latency"),
-                new KeyValuePair<string, object?>("target", pingProbe.Site));
+            // RTT histogram — only when we have actual replies.
+            foreach (var rtt in pingProbe.Rtts)
+                _pingRtt.Record(rtt / 1000.0, target); // ms → s
 
-            jitterSum += jitter;
-            _networkStats.Record(
-                jitter,
-                new KeyValuePair<string, object?>("type",   "jitter"),
-                new KeyValuePair<string, object?>("target", pingProbe.Site));
+            // Jitter — only when measurable.
+            if (pingProbe.Jitter.HasValue)
+                _pingJitter.Record(pingProbe.Jitter.Value / 1000.0, target); // ms → s
+
+            // Score inputs (in ms / %) — substitute threshold on failure so an outage
+            // drags the score down rather than disappearing.
+            lossSum += pingProbe.Loss ?? score.LossThreshold;
+            var meanMs = pingProbe.Rtts.Count > 0
+                             ? pingProbe.Rtts.Average()
+                             : score.LatencyThreshold;
+            latencySum += meanMs;
+            jitterSum  += pingProbe.Jitter ?? score.JitterThreshold;
         }
+
         var avgLoss    = lossSum    / pingProbes.Length;
         var avgLatency = latencySum / pingProbes.Length;
         var avgJitter  = jitterSum  / pingProbes.Length;
@@ -124,20 +184,24 @@ public sealed partial class ProberService : BackgroundService
                                                                 resolver.Key,
                                                                 IPAddress.Parse(resolver.Value)),
                                                             options.DnsTestSite,
-                                                            cancellationToken: stoppingToken)));
+                                                            options.DnsTimeoutMs,
+                                                            stoppingToken)));
         LogDnsProbesElapsedMs(Stopwatch.GetElapsedTime(t0).TotalMilliseconds);
 
         double usersDnsServer = 0;
         foreach (var dnsProbe in dnsProbes)
         {
-            var latency = dnsProbe.Latency ?? score.DnsThreshold;
-            _dnsStats.Record(latency, new KeyValuePair<string, object?>("server", dnsProbe.Resolver.Name));
+            var resolver = new KeyValuePair<string, object?>("resolver", dnsProbe.Resolver.Name);
+            _dnsUp.Record(dnsProbe.Latency.HasValue ? 1.0 : 0.0, resolver);
+
+            if (dnsProbe.Latency.HasValue)
+                _dnsQueryDuration.Record(dnsProbe.Latency.Value / 1000.0, resolver); // ms → s
 
             if (string.Equals(dnsProbe.Resolver.Name, "My_DNS_Server", StringComparison.OrdinalIgnoreCase))
-                usersDnsServer = latency;
+                usersDnsServer = dnsProbe.Latency ?? score.DnsThreshold;
         }
 
-        _healthStats.Record(HealthScore.Compute(avgLoss, avgLatency, avgJitter, usersDnsServer, score));
+        _healthScore.Record(HealthScore.Compute(avgLoss, avgLatency, avgJitter, usersDnsServer, score));
     }
 
     /// <inheritdoc />

@@ -4,7 +4,6 @@ using System.Globalization;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
-using Microsoft.Extensions.Logging;
 
 namespace NetprobeSharp.Probers;
 
