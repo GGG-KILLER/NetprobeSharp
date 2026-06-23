@@ -3,7 +3,7 @@
 # Multi-arch build. The Alpine base images are published only for these three
 # platforms, which also match what .NET 10 supports on musl (x64/arm64/arm32):
 #   docker buildx build --platform linux/amd64,linux/arm64,linux/arm/v7 .
-FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0-alpine AS build
+FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0-alpine-aot AS build
 ARG TARGETARCH
 WORKDIR /source
 
@@ -17,7 +17,7 @@ RUN dotnet publish -a $TARGETARCH --no-restore -o /app
 
 
 # Runtime stage
-FROM mcr.microsoft.com/dotnet/aspnet:10.0-alpine
+FROM mcr.microsoft.com/dotnet/runtime-deps:10.0-alpine
 WORKDIR /app
 
 # iputils' ping emits the "rtt min/avg/max/mdev = ..." summary that PingProber
