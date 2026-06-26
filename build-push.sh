@@ -31,8 +31,9 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONTEXT="$SCRIPT_DIR/src"
 
-TAGS=(-t "$IMAGE:latest")
+TAGS=()
 [[ -n "$VERSION_ARG" ]] && TAGS+=(-t "$IMAGE:$VERSION")
+[[ "$VERSION_ARG" != "dev" ]] && TAGS+=(-t "$IMAGE:latest")
 
 # Multi-platform build+push needs the docker-container driver; the default 'docker'
 # driver can't handle more than one platform. Create a dedicated builder once.
