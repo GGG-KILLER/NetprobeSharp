@@ -32,6 +32,10 @@ public sealed partial class SpeedTester : BackgroundService
     // old servers go stale after reselection rather than accumulating on the numeric metrics.
     private readonly Gauge<double> _serverInfo;
 
+    // Tracks the previously-recorded server so RecordServerInfo can zero its labels
+    // before recording the new server, preventing stale series at value 1.
+    private IServer? _lastInfoServer;
+
     /// <inheritdoc />
     public SpeedTester(
         ILogger<SpeedTester>             logger,
@@ -144,10 +148,19 @@ public sealed partial class SpeedTester : BackgroundService
     }
 
     internal void RecordServerInfo(IServer server)
-        => _serverInfo.Record(
-            1,
+    {
+        // Zero out the previous server's series so Prometheus doesn't keep reporting it at 1.
+        // The 0-valued series vanishes naturally after the staleness window.
+        if (_lastInfoServer is { } old && (old.Sponsor != server.Sponsor || old.Location != server.Location))
+            _serverInfo.Record(0,
+                new KeyValuePair<string, object?>("sponsor",  old.Sponsor),
+                new KeyValuePair<string, object?>("location", old.Location));
+
+        _lastInfoServer = server;
+        _serverInfo.Record(1,
             new KeyValuePair<string, object?>("sponsor",  server.Sponsor),
             new KeyValuePair<string, object?>("location", server.Location));
+    }
 
     /// <summary>
     /// Converts a <see cref="SpeedTestResult"/> to bytes/second.
