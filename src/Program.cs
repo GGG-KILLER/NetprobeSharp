@@ -50,11 +50,14 @@ builder.Services
                .AddPrometheusExporter();
         });
 
-builder.Services.AddHealthChecks();
+builder.Services.AddHealthChecks()
+       .AddCheck<ProberServiceHealthCheck>("prober")
+       .AddCheck<SpeedTesterHealthCheck>("speedtest");
 
 builder.Services.AddTransient<IDnsProber, DnsProber>();
 builder.Services.AddTransient<IPingProber, PingProber>();
-builder.Services.AddHostedService<ProberService>();
+builder.Services.AddSingleton<ProberService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<ProberService>());
 
 // SpeedTest: use an explicit factory so ctor params are visible and adjustable here.
 builder.Services.AddSingleton<ISpeedTestService>(_ =>
@@ -79,7 +82,8 @@ builder.Services.AddSingleton<ISpeedTestService>(_ =>
         httpClientOverride: null,
         delayProviderOverride: new DelayProvider());
 });
-builder.Services.AddHostedService<SpeedTester>();
+builder.Services.AddSingleton<SpeedTester>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<SpeedTester>());
 
 var app = builder.Build();
 

@@ -29,6 +29,12 @@ public sealed partial class ProberService : BackgroundService
     private readonly Histogram<double> _pingRtt;
     private readonly Histogram<double> _dnsQueryDuration;
 
+    // Tracks when the last probe cycle completed — read by ProberServiceHealthCheck.
+    // Zero means "never completed". Written via Interlocked to avoid torn reads on 32-bit.
+    internal long _lastCycleTicks;
+    internal DateTimeOffset? LastCycleCompletedAt =>
+        _lastCycleTicks == 0 ? null : new DateTimeOffset(Interlocked.Read(ref _lastCycleTicks), TimeSpan.Zero);
+
     // Gauges
     private readonly Gauge<double> _pingJitter;
     private readonly Gauge<double> _pingLossRatio;
@@ -202,6 +208,7 @@ public sealed partial class ProberService : BackgroundService
         }
 
         _healthScore.Record(HealthScore.Compute(avgLoss, avgLatency, avgJitter, usersDnsServer, score));
+        Interlocked.Exchange(ref _lastCycleTicks, DateTimeOffset.UtcNow.Ticks);
     }
 
     /// <inheritdoc />

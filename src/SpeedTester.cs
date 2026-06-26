@@ -15,6 +15,12 @@ public sealed partial class SpeedTester : BackgroundService
     private readonly  ISpeedTestService                _speedTestService;
     internal readonly Meter                            _meter;
 
+    // Tracks when the last successful speed-test cycle completed — read by SpeedTesterHealthCheck.
+    // Zero means "never completed". Written via Interlocked to avoid torn reads on 32-bit.
+    internal long _lastCycleTicks;
+    internal DateTimeOffset? LastCycleCompletedAt =>
+        _lastCycleTicks == 0 ? null : new DateTimeOffset(Interlocked.Read(ref _lastCycleTicks), TimeSpan.Zero);
+
     // Gauges — all unlabeled so each metric is always a single time series in Prometheus.
     // Server identity is exposed separately via _serverInfo (info-metric pattern).
     private readonly Gauge<double> _latency;
@@ -132,6 +138,7 @@ public sealed partial class SpeedTester : BackgroundService
         _uploadSpeed.Record(BytesPerSecond(upload, "upload"));
 
         _speedTestUp.Record(1);
+        Interlocked.Exchange(ref _lastCycleTicks, DateTimeOffset.UtcNow.Ticks);
 
         LogSpeedTestFinished();
     }
