@@ -1,0 +1,133 @@
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write # Needed for release-please to update files and create releases
+  issues: write
+  pull-requests: write # Needed for release-please to create PRs
+
+name: Release Please and Publish
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        id: release
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  binaries:
+    name: Build ${{ matrix.rid }}
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created }}
+    runs-on: ${{ matrix.runs-on }}
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - rid: linux-x64
+            runs-on: ubuntu-latest
+            musl: false
+          - rid: linux-arm64
+            runs-on: ubuntu-24.04-arm
+            musl: false
+          - rid: linux-musl-x64
+            runs-on: ubuntu-latest
+            musl: true
+          - rid: linux-musl-arm64
+            runs-on: ubuntu-24.04-arm
+            musl: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name }}
+
+      # glibc builds: install prereqs and use dotnet directly on the runner
+      - name: Install .NET SDK
+        if: ${{ !matrix.musl }}
+        uses: actions/setup-dotnet@9a946fdbd5fb07b82b2f5a4466058b876ab72bb2 # v5.3.0
+        with:
+          dotnet-version: 10.0.x
+      - name: Install NativeAOT prerequisites
+        if: ${{ !matrix.musl }}
+        run: sudo apt-get install -y clang lld zlib1g-dev
+      - name: Build (glibc)
+        if: ${{ !matrix.musl }}
+        run: |
+          dotnet publish src/NetprobeSharp.csproj -r ${{ matrix.rid }} -c Release \
+            -p:CppCompilerAndLinker=clang -p:LinkerFlavor=lld -p:ObjCopyName=llvm-objcopy \
+            -o publish-output
+
+      # musl builds: run inside the Alpine AOT SDK container (same image the Dockerfile uses)
+      # to get the musl toolchain without cross-compile complexity
+      - name: Build (musl via Alpine container)
+        if: ${{ matrix.musl }}
+        run: |
+          docker run --rm \
+            -v "${{ github.workspace }}:/workspace" \
+            -w /workspace \
+            mcr.microsoft.com/dotnet/sdk:10.0-alpine-aot \
+            sh -c "apk add --no-cache clang lld llvm musl-dev gcc && \
+                   dotnet publish src/NetprobeSharp.csproj -r ${{ matrix.rid }} -c Release \
+                     -p:CppCompilerAndLinker=clang -p:LinkerFlavor=lld -p:ObjCopyName=llvm-objcopy \
+                     -o /workspace/publish-output"
+      - name: Fix output ownership (musl container runs as root)
+        if: ${{ matrix.musl }}
+        run: sudo chown -R "$(id -u):$(id -g)" publish-output
+
+      - name: Package binary
+        run: tar -czf netprobesharp-${{ matrix.rid }}.tar.gz -C publish-output NetprobeSharp
+
+      - name: Upload to release
+        run: gh release upload ${{ needs.release-please.outputs.tag_name }} netprobesharp-${{ matrix.rid }}.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  docker:
+    name: Docker
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name }}
+
+      # No QEMU needed: the Dockerfile cross-compiles via Alpine sysroot stages
+      # (foreign-arch image fetches only — no emulated execution).
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
+        with:
+          context: src
+          file: src/Dockerfile
+          platforms: linux/amd64,linux/arm64,linux/arm/v7
+          build-args: |
+            VERSION=${{ needs.release-please.outputs.version }}
+            REVISION=${{ github.sha }}
+          tags: |
+            gggdotdev/netprobesharp:${{ needs.release-please.outputs.version }}
+            gggdotdev/netprobesharp:latest
+          push: true
