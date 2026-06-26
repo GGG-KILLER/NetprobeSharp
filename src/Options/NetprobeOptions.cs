@@ -51,6 +51,11 @@ public sealed class NetprobeOptions
     /// Options for scoring the network connectivity.
     /// </summary>
     public ScoreOptions Score { get; set; } = new();
+
+    /// <summary>
+    /// Options for the speed testing module.
+    /// </summary>
+    public SpeedtestOptions Speedtest { get; set; } = new();
 }
 
 public sealed class NetprobeOptionsValidator : IValidateOptions<NetprobeOptions>
@@ -146,6 +151,34 @@ public sealed class NetprobeOptionsValidator : IValidateOptions<NetprobeOptions>
             builder.AddError(
                 $"'{nameof(NetprobeOptions.DnsTimeoutMs)}' must be greater than or equal to 1.",
                 nameof(NetprobeOptions.DnsTimeoutMs));
+        }
+
+        if (options.Speedtest.TestIntervalMin < 5)
+        {
+            builder.AddError(
+                $"'{nameof(NetprobeOptions.Speedtest)}.{nameof(SpeedtestOptions.TestIntervalMin)}' must be greater than or equal to 5.",
+                nameof(NetprobeOptions.Speedtest) + '.' + nameof(SpeedtestOptions.TestIntervalMin));
+        }
+
+        if (options.Speedtest.DownloadSizeMb < 1)
+        {
+            builder.AddError(
+                $"'{nameof(NetprobeOptions.Speedtest)}.{nameof(SpeedtestOptions.DownloadSizeMb)}' must be greater than or equal to 1.",
+                nameof(NetprobeOptions.Speedtest) + '.' + nameof(SpeedtestOptions.DownloadSizeMb));
+        }
+
+        if (options.Speedtest.UploadSizeMb < 1)
+        {
+            builder.AddError(
+                $"'{nameof(NetprobeOptions.Speedtest)}.{nameof(SpeedtestOptions.UploadSizeMb)}' must be greater than or equal to 1.",
+                nameof(NetprobeOptions.Speedtest) + '.' + nameof(SpeedtestOptions.UploadSizeMb));
+        }
+
+        if (options.Speedtest.ServerReselectionIntervalMin is < 1)
+        {
+            builder.AddError(
+                $"'{nameof(NetprobeOptions.Speedtest)}.{nameof(SpeedtestOptions.ServerReselectionIntervalMin)}' must be greater than or equal to 1.",
+                nameof(NetprobeOptions.Speedtest) + '.' + nameof(SpeedtestOptions.ServerReselectionIntervalMin));
         }
 
         return builder.Build();

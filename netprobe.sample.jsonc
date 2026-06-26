@@ -30,5 +30,22 @@
     // The name/key for the next entry is used for quality calculations, so don't change it.
     // DO replace the IP with the DNS server configured in your home network.
     "My_DNS_Server": "8.8.8.8"
+  },
+
+  // ── Speed test ───────────────────────────────────────────────────────────────
+  // Periodic Ookla speed test. Disabled by default — no network I/O occurs while
+  // Enable is false. When enabled, a server is selected once at startup (or
+  // re-selected every ServerReselectionIntervalMin seconds if that is set).
+  "Speedtest": {
+    // Set to true to enable speed testing.
+    "Enable": false,
+    // How often to run a speed test (minutes). Default: 10.
+    "TestIntervalMin": 10,
+    // Download payload cap in MB. Default: 1024. Must be ≥ 1.
+    "DownloadSizeMb": 1024,
+    // Upload payload cap in MB. Default: 256. Must be ≥ 1.
+    "UploadSizeMb": 256,
+    // Re-select the fastest server this often (minutes). Omit to select only once at startup.
+    // "ServerReselectionIntervalMin": 1440
   }
 }

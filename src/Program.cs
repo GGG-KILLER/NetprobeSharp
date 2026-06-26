@@ -1,5 +1,8 @@
 using Microsoft.Extensions.Logging.Console;
 using Microsoft.Extensions.Options;
+using NetPace.Core;
+using NetPace.Core.Clients.Ookla;
+using NetPace.Core.Clients.Ookla.Settings;
 using NetprobeSharp;
 using NetprobeSharp.Options;
 using NetprobeSharp.Probers;
@@ -42,8 +45,9 @@ builder.Services
        .WithMetrics(metricsBuilder =>
         {
             metricsBuilder
-                .AddMeter(ProberService.MeterName)
-                .AddPrometheusExporter();
+               .AddMeter(ProberService.MeterName)
+               .AddMeter(SpeedTester.MeterName)
+               .AddPrometheusExporter();
         });
 
 builder.Services.AddHealthChecks();
@@ -51,6 +55,31 @@ builder.Services.AddHealthChecks();
 builder.Services.AddTransient<IDnsProber, DnsProber>();
 builder.Services.AddTransient<IPingProber, PingProber>();
 builder.Services.AddHostedService<ProberService>();
+
+// SpeedTest: use an explicit factory so ctor params are visible and adjustable here.
+builder.Services.AddSingleton<ISpeedTestService>(_ =>
+{
+    return new OoklaSpeedtest(
+        speedtestSettings: new OoklaSpeedtestSettings
+                           {
+                               DownloadTest = new DownloadTestSettings
+                                              {
+                                                  DownloadSizes          = [ 2000, 2500, 3000, 3500, 4000 ],
+                                                  DownloadSizeIterations = 12,
+                                                  DownloadParallelTasks  = 16,
+                                              },
+                               UploadTest = new UploadTestSettings
+                                            {
+                                                UploadSizeIncrementKb = 500,
+                                                UploadIncrements      = 8,
+                                                UploadSizeIterations  = 12,
+                                                UploadParallelTasks   = 16,
+                                            }
+                           },
+        httpClientOverride: null,
+        delayProviderOverride: new DelayProvider());
+});
+builder.Services.AddHostedService<SpeedTester>();
 
 var app = builder.Build();
 

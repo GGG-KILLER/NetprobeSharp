@@ -23,7 +23,7 @@ public sealed partial class ProberService : BackgroundService
     private readonly IOptionsMonitor<NetprobeOptions> _options;
     private readonly IPingProber                      _pingProber;
     private readonly IDnsProber                       _dnsProber;
-    private readonly Meter                            _meter;
+    internal readonly Meter                            _meter;
 
     // Histograms — emit _bucket / _sum / _count automatically.
     private readonly Histogram<double> _pingRtt;
@@ -124,7 +124,7 @@ public sealed partial class ProberService : BackgroundService
         } while (await timer.WaitForNextTickAsync(stoppingToken));
     }
 
-    private async Task RunProbeCycleAsync(NetprobeOptions options, CancellationToken stoppingToken)
+    internal async Task RunProbeCycleAsync(NetprobeOptions options, CancellationToken stoppingToken)
     {
         _logger.LogInformation("Running ping probes...");
 

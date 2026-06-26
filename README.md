@@ -166,6 +166,11 @@ NETPROBE_ConfigPath=/etc/netprobe ./NetprobeSharp
 | `Score.JitterWeight` | double | `0.20` | Weight of jitter in the score. |
 | `Score.DnsThreshold` | double | `100` | DNS latency (ms) treated as the worst case. |
 | `Score.DnsWeight` | double | `0.05` | Weight of DNS latency in the score. |
+| `Speedtest.Enable` | bool | `false` | Enable the periodic speed-test module (Ookla). Disabled by default — no network I/O occurs while `false`. |
+| `Speedtest.TestIntervalMin` | int | `10` | Minutes between speed-test runs. Must be ≥ 5. |
+| `Speedtest.DownloadSizeMb` | int | `1024` | Download payload cap in MB. Must be ≥ 1. |
+| `Speedtest.UploadSizeMb` | int | `256` | Upload payload cap in MB. Must be ≥ 1. |
+| `Speedtest.ServerReselectionIntervalMin` | int? | `null` | Re-select the fastest server this often (minutes); `null` selects once at startup. Must be ≥ 1 when set. |
 
 Configuration is validated on startup; if anything is missing or invalid (e.g. no `Sites`, a bad IP, or a missing `My_DNS_Server` resolver) the app refuses to start and logs the errors.
 
@@ -279,6 +284,19 @@ Metrics follow Prometheus naming conventions: base units (seconds, ratios `0`–
 | `netprobe_dns_up` | gauge | `resolver` (resolver name) | `1` if the last DNS probe received a reply, else `0`. |
 | `netprobe_health_score` | gauge | — | Overall internet health score, `0`–`1` (see below). |
 | `netprobe_build_info` | gauge | `version` | Constant `1`; exposes the build version as a label. |
+| `netprobe_speedtest_latency_seconds` | gauge | — | Latency to the selected Ookla server, in seconds. Only recorded when `Speedtest.Enable = true`. |
+| `netprobe_speedtest_download_speed_bytes_per_second` | gauge | — | Download throughput from the selected server, in **bytes** per second (not bits — multiply by 8 for bps). |
+| `netprobe_speedtest_upload_speed_bytes_per_second` | gauge | — | Upload throughput to the selected server, in **bytes** per second. |
+| `netprobe_speedtest_up` | gauge | — | `1` if the last speed test completed successfully, `0` if it failed or `Speedtest.Enable = false`. |
+| `netprobe_speedtest_server_info` | gauge | `sponsor`, `location` | Always `1`. Identifies the currently selected Ookla server via labels. Updated on selection/reselection. |
+
+The four numeric speedtest metrics carry no server label — each is always a single Prometheus time series. Server identity is exposed separately via `netprobe_speedtest_server_info` (the [info-metric pattern](https://www.robustperception.io/how-to-have-labels-for-machine-roles)), which can be joined in PromQL when needed:
+
+```promql
+netprobe_speedtest_download_speed_bytes_per_second
+  * on() group_left(sponsor, location)
+  netprobe_speedtest_server_info
+```
 
 ### Querying latency percentiles
 
