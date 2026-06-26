@@ -1,0 +1,102 @@
+on:
+  push:
+    branches: [ main ]
+    paths-ignore:
+      - '.github/ISSUE_TEMPLATE/**'
+      - 'docs/**'
+      - '**/*.md'
+      - '**/*.txt'
+  pull_request:
+    branches: [ main ]
+    paths-ignore:
+      - '.github/ISSUE_TEMPLATE/**'
+      - 'docs/**'
+      - '**/*.md'
+      - '**/*.txt'
+  schedule:
+    - cron: '25 17 * * 6'
+
+name: CodeQL
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: actions
+            build-mode: none
+          - language: csharp
+            build-mode: autobuild
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: Install .NET SDK
+        uses: actions/setup-dotnet@9a946fdbd5fb07b82b2f5a4466058b876ab72bb2 # v5.3.0
+        with:
+          dotnet-version: 10.0.x
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+          queries: security-and-quality
+          config: |
+            # CLI tool — only local threats are relevant
+            threat-models: local
+            paths-ignore:
+              - 'docs/**'
+            query-filters:
+              - exclude:
+                  id: cs/local-shadows-member
+              - exclude:
+                  id: cs/complex-block
+              - exclude:
+                  id: cs/useless-upcast
+              - exclude:
+                  id: cs/linq/missed-select
+              - exclude:
+                  id: cs/missed-ternary-operator
+
+      - if: matrix.build-mode == 'manual'
+        shell: bash
+        run: |
+          echo 'If you are using a "manual" build mode for one or more of the' \
+            'languages you are analyzing, replace this with the commands to build' \
+            'your code, for example:'
+          echo '  make bootstrap'
+          echo '  make release'
+          exit 1
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
+        with:
+          category: "/language:${{matrix.language}}"
+          output: sarif-results
+          upload: failure-only
+
+      - name: Filter findings to remove docs and generated files
+        uses: advanced-security/filter-sarif@2da736ff05ef065cb2894ac6892e47b5eac2c3c0 # v1.1
+        with:
+          patterns: |
+            -docs/**
+            -**/*.g.cs
+            -**/*.Generated.cs
+          input: sarif-results/${{matrix.language}}.sarif
+          output: sarif-results/${{matrix.language}}.sarif
+
+      - name: Upload SARIF
+        uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
+        with:
+          sarif_file: sarif-results/${{matrix.language}}.sarif
+
+      - name: Archive SARIF results
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sarif-results-${{matrix.language}}.sarif
+          path: sarif-results/${{matrix.language}}.sarif
+          retention-days: 1

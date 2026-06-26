@@ -7,6 +7,8 @@
     <Nullable>enable</Nullable>
 
     <PublishAot>true</PublishAot>
+
+    <Version>0.4.0</Version>
   </PropertyGroup>
 
   <PropertyGroup Condition="$(PublishAot) == 'true'">
