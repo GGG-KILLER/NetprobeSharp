@@ -8,7 +8,7 @@
 
     <PublishAot>true</PublishAot>
 
-    <Version>0.4.0</Version>
+    <Version>0.4.1</Version>
   </PropertyGroup>
 
   <PropertyGroup Condition="$(PublishAot) == 'true'">
@@ -33,13 +33,13 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <InternalsVisibleTo Include="NetprobeSharp.Tests" />
+    <InternalsVisibleTo Include="NetprobeSharp.Tests"/>
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="NetPace.Core" Version="0.23.1" />
-    <PackageReference Include="OpenTelemetry.Exporter.Prometheus.AspNetCore" Version="1.16.0-beta.1" />
-    <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.16.0" />
+    <PackageReference Include="NetPace.Core" Version="0.23.1"/>
+    <PackageReference Include="OpenTelemetry.Exporter.Prometheus.AspNetCore" Version="1.16.0-beta.1"/>
+    <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.16.0"/>
   </ItemGroup>
 
 </Project>
