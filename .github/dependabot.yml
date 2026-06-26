@@ -4,8 +4,8 @@ version: 2
 updates:
   - package-ecosystem: dotnet-sdk
     directories:
-      - src/*.csproj
-      - test/*.csproj
+      - /src
+      - /test
     assignees:
       - GGG-KILLER
     commit-message:
