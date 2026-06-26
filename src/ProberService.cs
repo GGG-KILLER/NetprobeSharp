@@ -52,19 +52,19 @@ public sealed partial class ProberService : BackgroundService
 
         _pingRtt = _meter.CreateHistogram<double>(
             "netprobe_ping_rtt",
-            unit: "seconds",
+            unit: "s",
             description: "Round-trip time per ping reply.",
             advice: new InstrumentAdvice<double> { HistogramBucketBoundaries = s_rttBuckets });
 
         _dnsQueryDuration = _meter.CreateHistogram<double>(
             "netprobe_dns_query_duration",
-            unit: "seconds",
+            unit: "s",
             description: "DNS query round-trip latency.",
             advice: new InstrumentAdvice<double> { HistogramBucketBoundaries = s_rttBuckets });
 
         _pingJitter = _meter.CreateGauge<double>(
             "netprobe_ping_jitter",
-            unit: "seconds",
+            unit: "s",
             description: "Ping RTT population stddev (mdev) per target.");
 
         _pingLossRatio = _meter.CreateGauge<double>(

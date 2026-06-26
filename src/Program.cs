@@ -9,13 +9,14 @@ var configPath = Environment.GetEnvironmentVariable("NETPROBE_ConfigPath");
 if (string.IsNullOrWhiteSpace(configPath))
     configPath = AppContext.BaseDirectory;
 
-var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions
-{
-    ApplicationName = "NetprobeSharp",
-    Args            = args,
-    ContentRootPath = configPath,
-    EnvironmentName = "Production",
-});
+var builder = WebApplication.CreateSlimBuilder(
+    new WebApplicationOptions
+    {
+        ApplicationName = "NetprobeSharp",
+        Args            = args,
+        ContentRootPath = configPath,
+        EnvironmentName = "Production",
+    });
 
 // Default listen address — users can override via ASPNETCORE_URLS or the "urls" key.
 // Kestrel accepts "+" as a wildcard host (equivalent to 0.0.0.0 / [::]).
