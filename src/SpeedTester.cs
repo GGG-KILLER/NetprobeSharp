@@ -18,8 +18,9 @@ public sealed partial class SpeedTester : BackgroundService
     // Tracks when the last successful speed-test cycle completed — read by SpeedTesterHealthCheck.
     // Zero means "never completed". Written via Interlocked to avoid torn reads on 32-bit.
     internal long _lastCycleTicks;
-    internal DateTimeOffset? LastCycleCompletedAt =>
-        _lastCycleTicks == 0 ? null : new DateTimeOffset(Interlocked.Read(ref _lastCycleTicks), TimeSpan.Zero);
+
+    internal DateTimeOffset? LastCycleCompletedAt
+        => _lastCycleTicks == 0 ? null : new DateTimeOffset(Interlocked.Read(ref _lastCycleTicks), TimeSpan.Zero);
 
     // Gauges — all unlabeled so each metric is always a single time series in Prometheus.
     // Server identity is exposed separately via _serverInfo (info-metric pattern).
@@ -72,8 +73,9 @@ public sealed partial class SpeedTester : BackgroundService
         using var timer = new PeriodicTimer(TimeSpan.FromMinutes(_options.CurrentValue.Speedtest.TestIntervalMin));
 
         // Server discovery is lazy — no network I/O until the first enabled cycle.
-        IServer?       server          = null;
-        DateTimeOffset lastReselection = DateTimeOffset.MinValue;
+        IServer?       server           = null;
+        DateTimeOffset lastReselection  = DateTimeOffset.MinValue;
+        bool           forceReselection = false;
 
         do
         {
@@ -93,14 +95,20 @@ public sealed partial class SpeedTester : BackgroundService
                     continue;
                 }
 
-                // Select a server on the first enabled cycle, or after re-selection interval.
-                if (server is null)
+                // Select a server on the first enabled cycle, or when a speed leg fell below a
+                // reselection threshold last cycle (forceReselection), or after the periodic
+                // reselection interval.
+                if (server is null || forceReselection)
                 {
-                    LogFetchingServers();
+                    if (server is not null)
+                        LogReselectingServer();
+                    else
+                        LogFetchingServers();
                     var servers = await _speedTestService.GetServersAsync(stoppingToken);
                     LogPickingServer();
                     server = (await _speedTestService.GetFastestServerByLatencyAsync(servers, stoppingToken)).Server;
                     lastReselection = DateTimeOffset.UtcNow;
+                    forceReselection = false;
                     RecordServerInfo(server);
                 }
                 else if (options.Speedtest.ServerReselectionIntervalMin.HasValue
@@ -114,7 +122,7 @@ public sealed partial class SpeedTester : BackgroundService
                     RecordServerInfo(server);
                 }
 
-                await RunCycleAsync(server, options.Speedtest, stoppingToken);
+                forceReselection = await RunCycleAsync(server, options.Speedtest, stoppingToken);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -127,24 +135,34 @@ public sealed partial class SpeedTester : BackgroundService
     /// <summary>
     /// Runs one measurement cycle (latency, download, upload) against <paramref name="server"/>
     /// and records the results. Extracted for unit testability.
+    /// Returns <see langword="true"/> when the next cycle should re-select a server because
+    /// download or upload fell below the configured reselection thresholds.
     /// </summary>
-    internal async Task RunCycleAsync(IServer server, SpeedtestOptions options, CancellationToken ct)
+    internal async Task<bool> RunCycleAsync(IServer server, SpeedtestOptions options, CancellationToken ct)
     {
         LogRunningSpeedTest();
 
         var latency = await _speedTestService.GetServerLatencyAsync(server, ct);
         _latency.Record(latency.LatencyMilliseconds / 1000.0);
 
-        var download = await _speedTestService.GetDownloadSpeedAsync(server, options.DownloadSizeMb, ct);
-        _downloadSpeed.Record(BytesPerSecond(download, "download"));
+        var download    = await _speedTestService.GetDownloadSpeedAsync(server, options.DownloadSizeMb, ct);
+        var downloadBps = BytesPerSecond(download, "download");
+        _downloadSpeed.Record(downloadBps);
 
-        var upload = await _speedTestService.GetUploadSpeedAsync(server, options.UploadSizeMb, ct);
-        _uploadSpeed.Record(BytesPerSecond(upload, "upload"));
+        var upload    = await _speedTestService.GetUploadSpeedAsync(server, options.UploadSizeMb, ct);
+        var uploadBps = BytesPerSecond(upload, "upload");
+        _uploadSpeed.Record(uploadBps);
 
         _speedTestUp.Record(1);
         Interlocked.Exchange(ref _lastCycleTicks, DateTimeOffset.UtcNow.Ticks);
 
         LogSpeedTestFinished();
+
+        // Gauges are B/s; thresholds are Mbps (1 Mbps = 125 000 B/s = 1 000 000 b/s / 8).
+        var downloadMbps = downloadBps * 8.0 / 1_000_000;
+        var uploadMbps   = uploadBps   * 8.0 / 1_000_000;
+        return downloadMbps < options.ReselectDownloadThresholdMbps
+            || uploadMbps   < options.ReselectUploadThresholdMbps;
     }
 
     internal void RecordServerInfo(IServer server)
@@ -152,12 +170,14 @@ public sealed partial class SpeedTester : BackgroundService
         // Zero out the previous server's series so Prometheus doesn't keep reporting it at 1.
         // The 0-valued series vanishes naturally after the staleness window.
         if (_lastInfoServer is { } old && (old.Sponsor != server.Sponsor || old.Location != server.Location))
-            _serverInfo.Record(0,
+            _serverInfo.Record(
+                0,
                 new KeyValuePair<string, object?>("sponsor",  old.Sponsor),
                 new KeyValuePair<string, object?>("location", old.Location));
 
         _lastInfoServer = server;
-        _serverInfo.Record(1,
+        _serverInfo.Record(
+            1,
             new KeyValuePair<string, object?>("sponsor",  server.Sponsor),
             new KeyValuePair<string, object?>("location", server.Location));
     }

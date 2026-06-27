@@ -27,4 +27,16 @@ public sealed class SpeedtestOptions
     /// When <see langword="null"/>, the server is selected once at startup and never re-selected.
     /// </summary>
     public int? ServerReselectionIntervalMin { get; set; } = null;
+
+    /// <summary>
+    /// Re-select the server on the next cycle if the measured download throughput (Mbps) is below
+    /// this value. Defaults to 1 Mbps. Set to 0 to disable download-based reselection.
+    /// </summary>
+    public double ReselectDownloadThresholdMbps { get; set; } = 1;
+
+    /// <summary>
+    /// Re-select the server on the next cycle if the measured upload throughput (Mbps) is below
+    /// this value. Defaults to 1 Mbps. Set to 0 to disable upload-based reselection.
+    /// </summary>
+    public double ReselectUploadThresholdMbps { get; set; } = 1;
 }

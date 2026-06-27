@@ -5,14 +5,15 @@ namespace NetprobeSharp.Tests;
 
 public class NetprobeOptionsValidatorTests
 {
-    private static NetprobeOptions ValidOptions() => new()
-    {
-        Sites       = ["google.com"],
-        DnsResolvers = new Dictionary<string, string> { ["My_DNS_Server"] = "8.8.8.8" },
-    };
+    private static NetprobeOptions ValidOptions()
+        => new()
+           {
+               Sites        = [ "google.com" ],
+               DnsResolvers = new Dictionary<string, string> { ["My_DNS_Server"] = "8.8.8.8" },
+           };
 
-    private static ValidateOptionsResult Validate(NetprobeOptions opts) =>
-        new NetprobeOptionsValidator().Validate(null, opts);
+    private static ValidateOptionsResult Validate(NetprobeOptions opts)
+        => new NetprobeOptionsValidator().Validate(null, opts);
 
     [Fact]
     public void ValidOptions_Passes()
@@ -24,7 +25,7 @@ public class NetprobeOptionsValidatorTests
     public void EmptySites_Fails()
     {
         var opts = ValidOptions();
-        opts.Sites = [];
+        opts.Sites = [ ];
         var result = Validate(opts);
         Assert.True(result.Failed);
         Assert.Contains(result.Failures!, f => f.Contains(nameof(NetprobeOptions.Sites)));
@@ -34,7 +35,7 @@ public class NetprobeOptionsValidatorTests
     public void InvalidSiteHostname_Fails()
     {
         var opts = ValidOptions();
-        opts.Sites = ["not a valid host!"];
+        opts.Sites = [ "not a valid host!" ];
         var result = Validate(opts);
         Assert.True(result.Failed);
         Assert.Contains(result.Failures!, f => f.Contains(nameof(NetprobeOptions.Sites)));
@@ -81,11 +82,11 @@ public class NetprobeOptionsValidatorTests
         var opts = ValidOptions();
         switch (optionName)
         {
-            case nameof(NetprobeOptions.ProbeIntervalSec):   opts.ProbeIntervalSec   = 0; break;
-            case nameof(NetprobeOptions.ProbeCountPerSite):  opts.ProbeCountPerSite  = 0; break;
-            case nameof(NetprobeOptions.PingTimeoutMs):      opts.PingTimeoutMs      = 0; break;
-            case nameof(NetprobeOptions.PingSpacingMs):      opts.PingSpacingMs      = 0; break;
-            case nameof(NetprobeOptions.DnsTimeoutMs):       opts.DnsTimeoutMs       = 0; break;
+            case nameof(NetprobeOptions.ProbeIntervalSec):  opts.ProbeIntervalSec  = 0; break;
+            case nameof(NetprobeOptions.ProbeCountPerSite): opts.ProbeCountPerSite = 0; break;
+            case nameof(NetprobeOptions.PingTimeoutMs):     opts.PingTimeoutMs     = 0; break;
+            case nameof(NetprobeOptions.PingSpacingMs):     opts.PingSpacingMs     = 0; break;
+            case nameof(NetprobeOptions.DnsTimeoutMs):      opts.DnsTimeoutMs      = 0; break;
         }
         var result = Validate(opts);
         Assert.True(result.Failed);
@@ -137,6 +138,42 @@ public class NetprobeOptionsValidatorTests
     {
         var opts = ValidOptions();
         opts.Speedtest.ServerReselectionIntervalMin = null;
+        Assert.True(Validate(opts).Succeeded);
+    }
+
+    [Fact]
+    public void Speedtest_ReselectDownloadThresholdMbps_Negative_Fails()
+    {
+        var opts = ValidOptions();
+        opts.Speedtest.ReselectDownloadThresholdMbps = -0.1;
+        var result = Validate(opts);
+        Assert.True(result.Failed);
+        Assert.Contains(result.Failures!, f => f.Contains(nameof(SpeedtestOptions.ReselectDownloadThresholdMbps)));
+    }
+
+    [Fact]
+    public void Speedtest_ReselectDownloadThresholdMbps_Zero_Passes()
+    {
+        var opts = ValidOptions();
+        opts.Speedtest.ReselectDownloadThresholdMbps = 0;
+        Assert.True(Validate(opts).Succeeded);
+    }
+
+    [Fact]
+    public void Speedtest_ReselectUploadThresholdMbps_Negative_Fails()
+    {
+        var opts = ValidOptions();
+        opts.Speedtest.ReselectUploadThresholdMbps = -0.1;
+        var result = Validate(opts);
+        Assert.True(result.Failed);
+        Assert.Contains(result.Failures!, f => f.Contains(nameof(SpeedtestOptions.ReselectUploadThresholdMbps)));
+    }
+
+    [Fact]
+    public void Speedtest_ReselectUploadThresholdMbps_Zero_Passes()
+    {
+        var opts = ValidOptions();
+        opts.Speedtest.ReselectUploadThresholdMbps = 0;
         Assert.True(Validate(opts).Succeeded);
     }
 }

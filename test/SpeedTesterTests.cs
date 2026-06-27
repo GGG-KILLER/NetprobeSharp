@@ -17,20 +17,20 @@ public class SpeedTesterTests
         return mock.Object;
     }
 
-    private static SpeedTestResult MakeSpeed(long bytes, long elapsedMs) =>
-        new() { BytesProcessed = bytes, ElapsedMilliseconds = elapsedMs };
+    private static SpeedTestResult MakeSpeed(long bytes, long elapsedMs)
+        => new() { BytesProcessed = bytes, ElapsedMilliseconds = elapsedMs };
 
-    private static LatencyTestResult MakeLatency(long ms, IServer server) =>
-        new() { LatencyMilliseconds = ms, Server = server };
+    private static LatencyTestResult MakeLatency(long ms, IServer server)
+        => new() { LatencyMilliseconds = ms, Server = server };
 
     private static (SpeedTester tester, Mock<ISpeedTestService> svcMock) Build()
     {
         var opts = new NetprobeOptions
-        {
-            Sites        = ["google.com"],
-            DnsResolvers = new Dictionary<string, string> { ["My_DNS_Server"] = "8.8.8.8" },
-            Speedtest    = new SpeedtestOptions { Enable = true },
-        };
+                   {
+                       Sites        = [ "google.com" ],
+                       DnsResolvers = new Dictionary<string, string> { ["My_DNS_Server"] = "8.8.8.8" },
+                       Speedtest    = new SpeedtestOptions { Enable                      = true },
+                   };
 
         var monitorMock = new Mock<IOptionsMonitor<NetprobeOptions>>();
         monitorMock.Setup(m => m.CurrentValue).Returns(opts);
@@ -95,8 +95,10 @@ public class SpeedTesterTests
 
         // RunCycleAsync propagates the exception; ExecuteAsync catches it and records up=0.
         // Assert that no up=1 is emitted when the cycle throws.
-        await Assert.ThrowsAsync<InvalidOperationException>(
-            () => tester.RunCycleAsync(server, new SpeedtestOptions { Enable = true }, CancellationToken.None));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => tester.RunCycleAsync(
+                                                                server,
+                                                                new SpeedtestOptions { Enable = true },
+                                                                CancellationToken.None));
 
         var m = collector.GetMeasurementSnapshot();
         Assert.DoesNotContain(m, x => x.Value == 1);
@@ -109,7 +111,7 @@ public class SpeedTesterTests
         var server = MakeServer("My ISP", "Paris");
         var (tester, svcMock) = Build();
         using var infoCollector = new MetricCollector<double>(tester._meter, "netprobe_speedtest_server_info", null);
-        using var upCollector   = new MetricCollector<double>(tester._meter, "netprobe_speedtest_up", null);
+        using var upCollector   = new MetricCollector<double>(tester._meter, "netprobe_speedtest_up",          null);
 
         svcMock.Setup(s => s.GetServerLatencyAsync(server, It.IsAny<CancellationToken>()))
                .ReturnsAsync(MakeLatency(50, server));
@@ -125,9 +127,11 @@ public class SpeedTesterTests
         var info = infoCollector.GetMeasurementSnapshot();
         Assert.Single(info);
         Assert.Equal(1.0, info[0].Value);
-        Assert.True(info[0].ContainsTags(
-            new KeyValuePair<string, object?>("sponsor",  "My ISP"),
-            new KeyValuePair<string, object?>("location", "Paris")));
+        Assert.True(
+            info[0]
+               .ContainsTags(
+                    new KeyValuePair<string, object?>("sponsor",  "My ISP"),
+                    new KeyValuePair<string, object?>("location", "Paris")));
 
         // Numeric metric has no server label.
         var up = upCollector.GetMeasurementSnapshot();
@@ -154,5 +158,87 @@ public class SpeedTesterTests
         var m = collector.GetMeasurementSnapshot();
         Assert.Single(m);
         Assert.Equal(1_000_000.0, m[0].Value, precision: 0);
+    }
+
+    // ── Reselection threshold return-value tests ─────────────────────────────────────────────
+
+    // 125 000 B/s = 1 Mbps exactly; 124 999 B/s < 1 Mbps.
+    private static SpeedTestResult AboveMbps() => MakeSpeed(125_000, 1000); // 1.000 Mbps
+    private static SpeedTestResult BelowMbps() => MakeSpeed(124_999, 1000); // 0.999... Mbps
+
+    private static async Task<bool> RunWithSpeeds(
+        SpeedTester             tester,
+        Mock<ISpeedTestService> svcMock,
+        IServer                 server,
+        SpeedTestResult         download,
+        SpeedTestResult         upload,
+        double                  dlThreshold = 1,
+        double                  ulThreshold = 1)
+    {
+        svcMock.Setup(s => s.GetServerLatencyAsync(server, It.IsAny<CancellationToken>()))
+               .ReturnsAsync(MakeLatency(50, server));
+        svcMock.Setup(s => s.GetDownloadSpeedAsync(server, It.IsAny<int>(), It.IsAny<CancellationToken>()))
+               .ReturnsAsync(download);
+        svcMock.Setup(s => s.GetUploadSpeedAsync(server, It.IsAny<int>(), It.IsAny<CancellationToken>()))
+               .ReturnsAsync(upload);
+
+        return await tester.RunCycleAsync(
+                   server,
+                   new SpeedtestOptions
+                   {
+                       Enable                        = true,
+                       ReselectDownloadThresholdMbps = dlThreshold,
+                       ReselectUploadThresholdMbps   = ulThreshold,
+                   },
+                   CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task Reselect_DownloadBelowThreshold_ReturnsTrue()
+    {
+        var server = MakeServer();
+        var (tester, svcMock) = Build();
+        Assert.True(await RunWithSpeeds(tester, svcMock, server, download: BelowMbps(), upload: AboveMbps()));
+    }
+
+    [Fact]
+    public async Task Reselect_UploadBelowThreshold_ReturnsTrue()
+    {
+        var server = MakeServer();
+        var (tester, svcMock) = Build();
+        Assert.True(await RunWithSpeeds(tester, svcMock, server, download: AboveMbps(), upload: BelowMbps()));
+    }
+
+    [Fact]
+    public async Task Reselect_BothBelowThreshold_ReturnsTrue()
+    {
+        var server = MakeServer();
+        var (tester, svcMock) = Build();
+        Assert.True(await RunWithSpeeds(tester, svcMock, server, download: BelowMbps(), upload: BelowMbps()));
+    }
+
+    [Fact]
+    public async Task Reselect_BothAboveThreshold_ReturnsFalse()
+    {
+        var server = MakeServer();
+        var (tester, svcMock) = Build();
+        Assert.False(await RunWithSpeeds(tester, svcMock, server, download: AboveMbps(), upload: AboveMbps()));
+    }
+
+    [Fact]
+    public async Task Reselect_ThresholdsZero_SlowSpeed_ReturnsFalse()
+    {
+        // Both thresholds set to 0 — reselection by speed is fully disabled.
+        var server = MakeServer();
+        var (tester, svcMock) = Build();
+        Assert.False(
+            await RunWithSpeeds(
+                tester,
+                svcMock,
+                server,
+                download: BelowMbps(),
+                upload: BelowMbps(),
+                dlThreshold: 0,
+                ulThreshold: 0));
     }
 }

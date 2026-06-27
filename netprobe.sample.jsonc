@@ -46,6 +46,10 @@
     // Upload payload cap in MB. Default: 256. Must be ≥ 1.
     "UploadSizeMb": 256,
     // Re-select the fastest server this often (minutes). Omit to select only once at startup.
-    // "ServerReselectionIntervalMin": 1440
+    // "ServerReselectionIntervalMin": 1440,
+    // Re-select the server next cycle if download (Mbps) drops below this. Default: 1. Set to 0 to disable.
+    "ReselectDownloadThresholdMbps": 1,
+    // Re-select the server next cycle if upload (Mbps) drops below this. Default: 1. Set to 0 to disable.
+    "ReselectUploadThresholdMbps": 1
   }
 }

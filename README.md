@@ -171,6 +171,8 @@ NETPROBE_ConfigPath=/etc/netprobe ./NetprobeSharp
 | `Speedtest.DownloadSizeMb` | int | `1024` | Download payload cap in MB. Must be ≥ 1. |
 | `Speedtest.UploadSizeMb` | int | `256` | Upload payload cap in MB. Must be ≥ 1. |
 | `Speedtest.ServerReselectionIntervalMin` | int? | `null` | Re-select the fastest server this often (minutes); `null` selects once at startup. Must be ≥ 1 when set. |
+| `Speedtest.ReselectDownloadThresholdMbps` | double | `1` | Re-select the server on the next cycle if measured download throughput (Mbps) is below this value. Set to `0` to disable. Must be ≥ 0. |
+| `Speedtest.ReselectUploadThresholdMbps` | double | `1` | Re-select the server on the next cycle if measured upload throughput (Mbps) is below this value. Set to `0` to disable. Must be ≥ 0. |
 
 Configuration is validated on startup; if anything is missing or invalid (e.g. no `Sites`, a bad IP, or a missing `My_DNS_Server` resolver) the app refuses to start and logs the errors.
 

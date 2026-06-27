@@ -181,6 +181,20 @@ public sealed class NetprobeOptionsValidator : IValidateOptions<NetprobeOptions>
                 nameof(NetprobeOptions.Speedtest) + '.' + nameof(SpeedtestOptions.ServerReselectionIntervalMin));
         }
 
+        if (options.Speedtest.ReselectDownloadThresholdMbps < 0)
+        {
+            builder.AddError(
+                $"'{nameof(NetprobeOptions.Speedtest)}.{nameof(SpeedtestOptions.ReselectDownloadThresholdMbps)}' must be greater than or equal to 0.",
+                nameof(NetprobeOptions.Speedtest) + '.' + nameof(SpeedtestOptions.ReselectDownloadThresholdMbps));
+        }
+
+        if (options.Speedtest.ReselectUploadThresholdMbps < 0)
+        {
+            builder.AddError(
+                $"'{nameof(NetprobeOptions.Speedtest)}.{nameof(SpeedtestOptions.ReselectUploadThresholdMbps)}' must be greater than or equal to 0.",
+                nameof(NetprobeOptions.Speedtest) + '.' + nameof(SpeedtestOptions.ReselectUploadThresholdMbps));
+        }
+
         return builder.Build();
     }
 }
