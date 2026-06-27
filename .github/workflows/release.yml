@@ -101,6 +101,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      id-token: write
+      attestations: write
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -119,6 +121,7 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Build and push
+        id: build
         uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
         with:
           context: src
@@ -131,3 +134,12 @@ jobs:
             gggdotdev/netprobesharp:${{ needs.release-please.outputs.version }}
             gggdotdev/netprobesharp:latest
           push: true
+          provenance: mode=max
+          sbom: true
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+        with:
+          subject-name: index.docker.io/gggdotdev/netprobesharp
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
