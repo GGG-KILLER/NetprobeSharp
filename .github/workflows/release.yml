@@ -61,7 +61,7 @@ jobs:
           dotnet-version: 10.0.x
       - name: Install NativeAOT prerequisites
         if: ${{ !matrix.musl }}
-        run: sudo apt-get install -y clang lld zlib1g-dev
+        run: sudo apt-get install -y clang lld llvm zlib1g-dev
       - name: Build (glibc)
         if: ${{ !matrix.musl }}
         run: |
