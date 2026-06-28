@@ -45,7 +45,8 @@ WORKDIR /app
 
 # iputils' ping emits the "rtt min/avg/max/mdev = ..." summary that PingProber
 # parses; BusyBox's ping omits mdev and would break RTT/jitter parsing.
-RUN apk add --no-cache iputils
+# speedtest-cli is for the optional speedtest module
+RUN apk add --no-cache iputils speedtest-cli
 
 COPY --link --from=build /app .
 USER $APP_UID

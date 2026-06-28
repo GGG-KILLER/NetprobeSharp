@@ -2,8 +2,8 @@ using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Moq;
-using NetPace.Core;
 using NetprobeSharp.Options;
+using NetprobeSharp.Probers;
 
 namespace NetprobeSharp.Tests;
 
@@ -23,7 +23,7 @@ public class SpeedTesterHealthCheckTests
         var tester = new SpeedTester(
             NullLogger<SpeedTester>.Instance,
             monitor.Object,
-            new Mock<ISpeedTestService>().Object);
+            new Mock<ISpeedtestProber>().Object);
 
         return (new SpeedTesterHealthCheck(tester, monitor.Object), tester);
     }

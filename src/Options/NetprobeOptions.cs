@@ -160,41 +160,6 @@ public sealed class NetprobeOptionsValidator : IValidateOptions<NetprobeOptions>
                 nameof(NetprobeOptions.Speedtest) + '.' + nameof(SpeedtestOptions.TestIntervalMin));
         }
 
-        if (options.Speedtest.DownloadSizeMb < 1)
-        {
-            builder.AddError(
-                $"'{nameof(NetprobeOptions.Speedtest)}.{nameof(SpeedtestOptions.DownloadSizeMb)}' must be greater than or equal to 1.",
-                nameof(NetprobeOptions.Speedtest) + '.' + nameof(SpeedtestOptions.DownloadSizeMb));
-        }
-
-        if (options.Speedtest.UploadSizeMb < 1)
-        {
-            builder.AddError(
-                $"'{nameof(NetprobeOptions.Speedtest)}.{nameof(SpeedtestOptions.UploadSizeMb)}' must be greater than or equal to 1.",
-                nameof(NetprobeOptions.Speedtest) + '.' + nameof(SpeedtestOptions.UploadSizeMb));
-        }
-
-        if (options.Speedtest.ServerReselectionIntervalMin is < 1)
-        {
-            builder.AddError(
-                $"'{nameof(NetprobeOptions.Speedtest)}.{nameof(SpeedtestOptions.ServerReselectionIntervalMin)}' must be greater than or equal to 1.",
-                nameof(NetprobeOptions.Speedtest) + '.' + nameof(SpeedtestOptions.ServerReselectionIntervalMin));
-        }
-
-        if (options.Speedtest.ReselectDownloadThresholdMbps < 0)
-        {
-            builder.AddError(
-                $"'{nameof(NetprobeOptions.Speedtest)}.{nameof(SpeedtestOptions.ReselectDownloadThresholdMbps)}' must be greater than or equal to 0.",
-                nameof(NetprobeOptions.Speedtest) + '.' + nameof(SpeedtestOptions.ReselectDownloadThresholdMbps));
-        }
-
-        if (options.Speedtest.ReselectUploadThresholdMbps < 0)
-        {
-            builder.AddError(
-                $"'{nameof(NetprobeOptions.Speedtest)}.{nameof(SpeedtestOptions.ReselectUploadThresholdMbps)}' must be greater than or equal to 0.",
-                nameof(NetprobeOptions.Speedtest) + '.' + nameof(SpeedtestOptions.ReselectUploadThresholdMbps));
-        }
-
         return builder.Build();
     }
 }
