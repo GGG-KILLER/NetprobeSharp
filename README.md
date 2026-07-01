@@ -16,11 +16,11 @@ All of this is published as [Prometheus metrics](#metrics) for you to scrape and
 
 ## System Requirements
 
-NetprobeSharp shells out to the system `ping` and (when speedtest is enabled) `speedtest-cli`, so both must be on `PATH`.
+NetprobeSharp shells out to the system `ping` and (when speedtest is enabled) `speedtest-go`, so both must be on `PATH`.
 
 `ping` comes from the `iputils` package on Linux; preinstalled on macOS/BSD. `ping` handles IPv4/IPv6 selection and RTT aggregation; the prober only parses its summary block.
 
-`speedtest-cli` is available as the `speedtest-cli` package on most Linux distributions. The Docker image includes it automatically.
+`speedtest-go` is available from the project's [GitHub releases](https://github.com/showwin/speedtest-go/releases). The Docker image downloads and installs a pinned release binary automatically.
 
 On a normal distro install there's nothing else to do: `ping` already works for unprivileged users because it ships setuid or with the `cap_net_raw` file capability.
 
@@ -170,8 +170,9 @@ NETPROBE_ConfigPath=/etc/netprobe ./NetprobeSharp
 | `Score.JitterWeight` | double | `0.20` | Weight of jitter in the score. |
 | `Score.DnsThreshold` | double | `100` | DNS latency (ms) treated as the worst case. |
 | `Score.DnsWeight` | double | `0.05` | Weight of DNS latency in the score. |
-| `Speedtest.Enable` | bool | `false` | Enable the periodic speed-test module (`speedtest-cli`). Disabled by default — no network I/O occurs while `false`. |
+| `Speedtest.Enable` | bool | `false` | Enable the periodic speed-test module (`speedtest-go`). Disabled by default — no network I/O occurs while `false`. |
 | `Speedtest.TestIntervalMin` | int | `10` | Minutes between speed-test runs. Must be ≥ 5. |
+| `Speedtest.ExtraArgs` | string[] | `[]` | Extra arguments appended to `speedtest-go --json --multi` on every run. Use `["--server", "<id>"]` to pin a server, `["--thread", "4"]` to limit concurrency, etc. |
 
 Configuration is validated on startup; if anything is missing or invalid (e.g. no `Sites`, a bad IP, or a missing `My_DNS_Server` resolver) the app refuses to start and logs the errors.
 
@@ -285,9 +286,13 @@ Metrics follow Prometheus naming conventions: base units (seconds, ratios `0`–
 | `netprobe_dns_up` | gauge | `resolver` (resolver name) | `1` if the last DNS probe received a reply, else `0`. |
 | `netprobe_health_score` | gauge | — | Overall internet health score, `0`–`1` (see below). |
 | `netprobe_build_info` | gauge | `version` | Constant `1`; exposes the build version as a label. |
-| `netprobe_speedtest_latency_seconds` | gauge | — | Latency reported by `speedtest-cli`, in seconds. Only recorded when `Speedtest.Enable = true`. |
-| `netprobe_speedtest_download_speed_bytes_per_second` | gauge | — | Download throughput, in **bytes** per second (not bits — multiply by 8 for bps). |
-| `netprobe_speedtest_upload_speed_bytes_per_second` | gauge | — | Upload throughput, in **bytes** per second. |
+| `netprobe_speedtest_latency_seconds` | gauge | — | Average latency across all `--multi` servers, in seconds. Only recorded when `Speedtest.Enable = true`. |
+| `netprobe_speedtest_min_latency_seconds` | gauge | — | Average minimum latency across all `--multi` servers, in seconds. |
+| `netprobe_speedtest_max_latency_seconds` | gauge | — | Average maximum latency across all `--multi` servers, in seconds. |
+| `netprobe_speedtest_jitter_seconds` | gauge | — | Average jitter across all `--multi` servers, in seconds. |
+| `netprobe_speedtest_download_speed_bytes_per_second` | gauge | — | Total download throughput in **bytes** per second, summed across all `--multi` servers (concurrent total ≈ line capacity). |
+| `netprobe_speedtest_upload_speed_bytes_per_second` | gauge | — | Total upload throughput in **bytes** per second, summed across all `--multi` servers. |
+| `netprobe_speedtest_packet_loss_ratio` | gauge | — | Packet loss ratio (0–1), computed from the summed `sent/dup/max` counts across all servers. Only recorded when speedtest-go reports loss data (`sent > 0`). |
 | `netprobe_speedtest_up` | gauge | — | `1` if the last speed test completed successfully, `0` if it failed or `Speedtest.Enable = false`. |
 
 ### Querying latency percentiles

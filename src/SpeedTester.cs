@@ -23,8 +23,12 @@ public sealed partial class SpeedTester : BackgroundService
 
     // Gauges — all unlabeled so each metric is always a single time series in Prometheus.
     private readonly Gauge<double> _latency;
+    private readonly Gauge<double> _minLatency;
+    private readonly Gauge<double> _maxLatency;
+    private readonly Gauge<double> _jitter;
     private readonly Gauge<double> _uploadSpeed;
     private readonly Gauge<double> _downloadSpeed;
+    private readonly Gauge<double> _packetLossRatio;
     private readonly Gauge<double> _speedTestUp;
 
     /// <inheritdoc />
@@ -40,15 +44,31 @@ public sealed partial class SpeedTester : BackgroundService
         _latency = _meter.CreateGauge<double>(
             "netprobe_speedtest_latency",
             unit: "s",
-            description: "Latency to the SpeedTest server (millisecond resolution).");
-        _uploadSpeed = _meter.CreateGauge<double>(
-            "netprobe_speedtest_upload_speed",
-            unit: "By/s",
-            description: "The upload speed to the SpeedTest server in bytes per second.");
+            description: "Average latency to the speedtest server(s), in seconds.");
+        _minLatency = _meter.CreateGauge<double>(
+            "netprobe_speedtest_min_latency",
+            unit: "s",
+            description: "Average minimum latency to the speedtest server(s), in seconds.");
+        _maxLatency = _meter.CreateGauge<double>(
+            "netprobe_speedtest_max_latency",
+            unit: "s",
+            description: "Average maximum latency to the speedtest server(s), in seconds.");
+        _jitter = _meter.CreateGauge<double>(
+            "netprobe_speedtest_jitter",
+            unit: "s",
+            description: "Average jitter to the speedtest server(s), in seconds.");
         _downloadSpeed = _meter.CreateGauge<double>(
             "netprobe_speedtest_download_speed",
             unit: "By/s",
-            description: "The download speed from the SpeedTest server in bytes per second.");
+            description: "Total download speed from the speedtest server(s) in bytes per second.");
+        _uploadSpeed = _meter.CreateGauge<double>(
+            "netprobe_speedtest_upload_speed",
+            unit: "By/s",
+            description: "Total upload speed to the speedtest server(s) in bytes per second.");
+        _packetLossRatio = _meter.CreateGauge<double>(
+            "netprobe_speedtest_packet_loss_ratio",
+            description: "Packet loss ratio (0–1) computed from summed sent/dup/max counts across all servers. "
+                       + "Only recorded when speedtest-go reports loss data (sent > 0).");
         _speedTestUp = _meter.CreateGauge<double>(
             "netprobe_speedtest_up",
             description: "1 if the last SpeedTest ran successfully, else 0.");
@@ -88,7 +108,7 @@ public sealed partial class SpeedTester : BackgroundService
     }
 
     /// <summary>
-    /// Runs one measurement cycle (latency, download, upload) and records the results. Extracted for unit testability.
+    /// Runs one measurement cycle and records the results. Extracted for unit testability.
     /// </summary>
     internal async Task RunCycleAsync(CancellationToken ct)
     {
@@ -98,9 +118,18 @@ public sealed partial class SpeedTester : BackgroundService
 
         if (result != null)
         {
-            _latency.Record(result.PingMs            / 1000.0);
-            _downloadSpeed.Record(result.DownloadBps / 8.0);
-            _uploadSpeed.Record(result.UploadBps     / 8.0);
+            // Prober returns durations as TimeSpan and speeds already in bytes/s — just convert to seconds.
+            _latency.Record(result.Latency.TotalSeconds);
+            _minLatency.Record(result.MinLatency.TotalSeconds);
+            _maxLatency.Record(result.MaxLatency.TotalSeconds);
+            _jitter.Record(result.Jitter.TotalSeconds);
+            _downloadSpeed.Record(result.DownloadBytesPerSecond);
+            _uploadSpeed.Record(result.UploadBytesPerSecond);
+
+            // Packet loss is optional: only recorded when the prober had loss data.
+            if (result.PacketLossRatio is { } loss)
+                _packetLossRatio.Record(loss);
+
             _speedTestUp.Record(1);
         }
         else

@@ -43,10 +43,31 @@ RUN if [ "$TARGETARCH" != "amd64" ]; then \
 FROM mcr.microsoft.com/dotnet/runtime-deps:10.0-alpine
 WORKDIR /app
 
+ARG TARGETARCH
+ARG TARGETVARIANT
+ARG SPEEDTEST_GO_VERSION=1.7.10
+
 # iputils' ping emits the "rtt min/avg/max/mdev = ..." summary that PingProber
 # parses; BusyBox's ping omits mdev and would break RTT/jitter parsing.
-# speedtest-cli is for the optional speedtest module
-RUN apk add --no-cache iputils speedtest-cli
+RUN apk add --no-cache iputils
+
+# speedtest-go is for the optional speedtest module.
+# Map Docker's TARGETARCH[VARIANT] to the goreleaser asset names used by the project.
+RUN set -eux; \
+    case "${TARGETARCH}${TARGETVARIANT}" in \
+        amd64)   ARCH=x86_64 ;; \
+        arm64)   ARCH=arm64  ;; \
+        armv7)   ARCH=armv7  ;; \
+        *)       echo "Unsupported platform: ${TARGETARCH}${TARGETVARIANT}" >&2; exit 1 ;; \
+    esac; \
+    FILE="speedtest-go_${SPEEDTEST_GO_VERSION}_Linux_${ARCH}.tar.gz"; \
+    BASE="https://github.com/showwin/speedtest-go/releases/download/v${SPEEDTEST_GO_VERSION}"; \
+    wget -qO /tmp/checksums.txt  "${BASE}/checksums.txt"; \
+    wget -qO "/tmp/${FILE}"      "${BASE}/${FILE}"; \
+    cd /tmp && grep "${FILE}" checksums.txt | sha256sum -c -; \
+    tar -xzf "/tmp/${FILE}" -C /usr/local/bin speedtest-go; \
+    rm "/tmp/${FILE}" /tmp/checksums.txt; \
+    speedtest-go --version
 
 COPY --link --from=build /app .
 USER $APP_UID

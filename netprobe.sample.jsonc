@@ -33,23 +33,17 @@
   },
 
   // ── Speed test ───────────────────────────────────────────────────────────────
-  // Periodic Ookla speed test. Disabled by default — no network I/O occurs while
-  // Enable is false. When enabled, a server is selected once at startup (or
-  // re-selected every ServerReselectionIntervalMin seconds if that is set).
+  // Periodic speed test via speedtest-go (--json --multi). Disabled by default —
+  // no network I/O occurs while Enable is false.
   "Speedtest": {
     // Set to true to enable speed testing.
     "Enable": false,
-    // How often to run a speed test (minutes). Default: 10.
+    // How often to run a speed test (minutes). Default: 10. Must be ≥ 5.
     "TestIntervalMin": 10,
-    // Download payload cap in MB. Default: 1024. Must be ≥ 1.
-    "DownloadSizeMb": 1024,
-    // Upload payload cap in MB. Default: 256. Must be ≥ 1.
-    "UploadSizeMb": 256,
-    // Re-select the fastest server this often (minutes). Omit to select only once at startup.
-    // "ServerReselectionIntervalMin": 1440,
-    // Re-select the server next cycle if download (Mbps) drops below this. Default: 1. Set to 0 to disable.
-    "ReselectDownloadThresholdMbps": 1,
-    // Re-select the server next cycle if upload (Mbps) drops below this. Default: 1. Set to 0 to disable.
-    "ReselectUploadThresholdMbps": 1
+    // Extra arguments appended to `speedtest-go --json --multi` on every invocation.
+    // Examples: pin a server by ID, limit threads.
+    // "ExtraArgs": ["--server", "43044"]
+    // "ExtraArgs": ["--thread", "4"]
+    "ExtraArgs": []
   }
 }

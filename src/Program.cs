@@ -57,7 +57,7 @@ builder.Services.AddTransient<IPingProber, PingProber>();
 builder.Services.AddSingleton<ProberService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<ProberService>());
 
-builder.Services.AddTransient<ISpeedtestProber, SpeedtestCliProber>();
+builder.Services.AddTransient<ISpeedtestProber, SpeedtestGoProber>();
 builder.Services.AddSingleton<SpeedTester>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<SpeedTester>());
 

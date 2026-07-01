@@ -11,4 +11,10 @@ public sealed class SpeedtestOptions
     /// The interval between speed tests (in minutes).
     /// </summary>
     public int TestIntervalMin { get; set; } = 10;
+
+    /// <summary>
+    /// Extra arguments appended to <c>speedtest-go --json --multi</c> on every invocation.
+    /// Use this to pin a server (<c>"--server", "12345"</c>), change ping mode, etc.
+    /// </summary>
+    public string[] ExtraArgs { get; set; } = [];
 }
