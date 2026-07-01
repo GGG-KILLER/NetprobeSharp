@@ -8,7 +8,7 @@
 
     <PublishAot>true</PublishAot>
 
-    <Version>0.4.2</Version>
+    <Version>0.4.3</Version>
   </PropertyGroup>
 
   <PropertyGroup Condition="$(PublishAot) == 'true'">
