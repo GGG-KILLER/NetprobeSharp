@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.3](https://github.com/GGG-KILLER/NetprobeSharp/compare/v0.4.2...v0.4.3) (2026-07-01)
+
+
+### Features
+
+* Replace speedtest-cli with speedtest-go ([6ed01a4](https://github.com/GGG-KILLER/NetprobeSharp/commit/6ed01a40ef62f49bce4d3007941b480071924a2e))
+
 ## [0.4.2](https://github.com/GGG-KILLER/NetprobeSharp/compare/v0.4.1...v0.4.2) (2026-06-28)
 
 
