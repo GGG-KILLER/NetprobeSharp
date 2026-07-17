@@ -24,6 +24,10 @@ updates:
     schedule:
       interval: weekly
       day: friday
+    groups:
+      codeql:
+        patterns:
+          - "github/codeql-action/*"
   - package-ecosystem: docker
     directory: /src
     assignees:
