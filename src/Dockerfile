@@ -40,7 +40,7 @@ RUN if [ "$TARGETARCH" != "amd64" ]; then \
 
 
 # Runtime stage
-FROM mcr.microsoft.com/dotnet/runtime-deps:10.0-alpine
+FROM mcr.microsoft.com/dotnet/runtime-deps:11.0-alpine
 WORKDIR /app
 
 ARG TARGETARCH
