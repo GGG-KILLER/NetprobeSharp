@@ -14,7 +14,7 @@ RUN apk add --no-cache musl-dev gcc
 FROM --platform=linux/arm/v7 alpine:3 AS sysroot-arm
 RUN apk add --no-cache musl-dev gcc
 
-FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0-alpine-aot AS build
+FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:11.0-alpine-aot AS build
 ARG TARGETARCH
 WORKDIR /source
 
